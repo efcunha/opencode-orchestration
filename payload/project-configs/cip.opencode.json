@@ -145,7 +145,7 @@
         "code-review-graph",
         "serve",
         "--repo",
-        "D:\\cloudpilot-deploy"
+        "D:\\cip"
       ]
     }
   },

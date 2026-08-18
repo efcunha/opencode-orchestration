@@ -89,13 +89,13 @@
       "type": "local",
       "command": [
         "node",
-        "D:/cloudpilot-deploy/.opencode/node_modules/opencode-rag-plugin/dist/cli.js",
+        "D:/ameg/.opencode/node_modules/opencode-rag-plugin/dist/cli.js",
         "mcp",
         "--config",
-        "D:/cloudpilot-deploy/.opencode/opencode-rag.json"
+        "D:/ameg/.opencode/opencode-rag.json"
       ],
       "environment": {
-        "OPENCODE_RAG_CWD": "D:/cloudpilot-deploy/.opencode"
+        "OPENCODE_RAG_CWD": "D:/ameg/.opencode"
       },
       "enabled": true,
       "timeout": 60000
