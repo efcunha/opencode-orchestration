@@ -1,0 +1,73 @@
+kind: quest
+name: Routing Probe
+description: "Two stages, two models — proves whether per-stage routing works and whether context survives the handoff"
+context: >
+  This quest exists only to measure plugin behaviour. It touches no project files,
+  runs no build, and changes nothing. Two questions it answers:
+  (1) does stage-level agent/model routing actually reach a different model, and
+  (2) does a routed stage still see the conversation from the previous stage.
+  Answer exactly in the requested format. Do not investigate the repository.
+  Do not be helpful beyond the format.
+  Do NOT read any file, and in particular not this YAML. The probe token is
+  invented at runtime by stage A and is written nowhere on disk, so a file read
+  cannot produce it and will only waste a turn.
+  Your conversation context is a legitimate and expected source — reading it is
+  the entire point of the measurement. Do not treat "it did not arrive in the
+  latest instruction text" as "I do not have it".
+stages:
+  - id: probe-a
+    description: "Stage A — should run on DeepSeek V4 Pro"
+    agent: plan
+    model: deepseek/deepseek-v4-pro
+    instruction: |
+      You are stage A of a routing probe.
+      First, invent a PROBE_TOKEN of the exact shape A-NNNNN-NNNNN where each
+      NNNNN is five random digits you choose freely. Choose unpredictably; do not
+      reuse a value from any example.
+      Reply with exactly these four lines and nothing else:
+      STAGE: probe-a
+      SELF_REPORTED_MODEL: <the model you believe you are, as specific as you can be>
+      SELF_REPORTED_PROVIDER: <the company that made you>
+      TOKEN_SEEN: <the PROBE_TOKEN you just invented>
+      Then call quest_advance("probe-b"). Nothing else. No commentary, no tool
+      calls other than quest_advance, no file reads.
+    checklist:
+      - "Four lines emitted in the exact format"
+      - "TOKEN_SEEN matches A-NNNNN-NNNNN"
+      - "quest_advance(\"probe-b\") called"
+    next:
+      proceed: probe-b
+  - id: probe-b
+    description: "Stage B — should run on MiniMax M3, and is asked to recall stage A"
+    agent: build
+    model: minimax-coding-plan/MiniMax-M3
+    instruction: |
+      You are stage B of a routing probe. A different stage ran before you.
+      Reply with exactly these five lines and nothing else:
+      STAGE: probe-b
+      SELF_REPORTED_MODEL: <the model you believe you are, as specific as you can be>
+      SELF_REPORTED_PROVIDER: <the company that made you>
+      PRIOR_TOKEN: <the PROBE_TOKEN value that appeared in the PREVIOUS stage, verbatim>
+      PRIOR_MODEL: <what SELF_REPORTED_MODEL the previous stage claimed>
+      Rules for the last two lines — read carefully, this IS the measurement:
+        - Scan your ENTIRE context: every message present, including text you
+          yourself produced in an earlier turn. If a value shaped like
+          "A-<digits>-<digits>" appears ANYWHERE in it, quote that value.
+        - Report what is LITERALLY PRESENT. This is a factual question about the
+          contents of your context window, nothing else.
+        - Do NOT reason about whether a routed stage "should" be a fresh agent, or
+          about which message the value arrived in, or about how quests are
+          "supposed" to work. All irrelevant. If the value is reachable, quote it.
+        - The token was invented at runtime and is on no disk, so if you can see it
+          at all, it reached you through context. That is the finding. Report it.
+        - Write NO_CONTEXT only if no such value appears anywhere in your context.
+          Saying NO_CONTEXT while the value is visible to you is the single worst
+          outcome — it produces a false negative and corrupts the measurement.
+        - Do NOT guess, invent, or reconstruct a plausible token either. A wrong
+          token is equally corrupting.
+      Then call quest_advance("done"). Nothing else.
+    checklist:
+      - "Five lines emitted in the exact format"
+      - "PRIOR_TOKEN is either verbatim from stage A or literally NO_CONTEXT"
+      - "Nothing invented"
+      - "quest_advance(\"done\") called"

@@ -1,0 +1,16 @@
+# Normaliza fim de linha para LF no repositorio. Sem isto, o mesmo arquivo
+# checado em Windows e em Linux produz diff de arquivo inteiro por troca de
+# CRLF/LF — ruido garantido num repo cuja razao de existir e ser clonado em
+# outra maquina.
+* text=auto eol=lf
+
+# Scripts que dependem de CRLF no Windows
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binarios, se algum dia entrarem
+*.png binary
+*.jpg binary
+*.ico binary
+*.exe binary

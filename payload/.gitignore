@@ -1,0 +1,53 @@
+# ── Config global do opencode — regras de versionamento ───────────────────────
+#
+# Escrito a mao em 2026-08-18. O opencode gera um .gitignore neste diretorio
+# com as quatro regras de scaffolding npm e com ".gitignore" auto-excluido.
+# A auto-exclusao foi REMOVIDA de proposito: com ela, um clone chegaria sem
+# regra nenhuma e o primeiro `npm install` sujaria a arvore com node_modules.
+# Se o opencode reescrever este arquivo, o diff aparece no `git status` — e o
+# arquivo ja esta rastreado, entao a perda e visivel e reversivel.
+#
+# Ancoragem importa aqui: padroes sem barra casam em QUALQUER nivel. Por isso
+# os manifests npm do proprio diretorio sao ancorados com "/", senao a regra
+# comeria plugins/opencode-quests/package.json, que e manifest real de plugin
+# com dependencias e scripts e precisa ser versionado.
+
+# ── Scaffolding npm que o opencode gerencia (raiz apenas) ─────────────────────
+/package.json
+/package-lock.json
+/bun.lock
+
+# ── Dependencias instaladas, em qualquer nivel ────────────────────────────────
+node_modules/
+
+# ── Estado local de UI e decisoes tomadas por maquina ─────────────────────────
+/tui.json
+/lsp-install-decisions.json
+
+# ── Artefatos de build e teste dos plugins ────────────────────────────────────
+plugins/**/coverage/
+plugins/**/dist/
+plugins/**/.vitest/
+*.tsbuildinfo
+
+# ── Credenciais ───────────────────────────────────────────────────────────────
+# O opencode guarda auth em ~/.local/share/opencode/auth.json, fora deste
+# diretorio. As regras abaixo sao trava preventiva, nao descricao do estado.
+auth.json
+*.key
+*.pem
+.env
+.env.*
+
+# ── Plugin com repositorio proprio ────────────────────────────────────────────
+# plugins/opencode-quests/ e um clone de github.com/lirrensi/opencode-quests
+# (upstream de terceiro) com os patches de roteamento por estagio commitados
+# localmente na branch fork/stage-routing. Tem historia propria, entao fica
+# FORA deste repo: rastrear aqui criaria um gitlink apontando para um commit
+# que nao existe em nenhum remoto publicado, e um clone quebraria.
+#
+# O artefato que o opencode REALMENTE carrega e o arquivo achatado
+# plugins/opencode-quests.ts, gerado por `npm run deploy`, e ESSE arquivo e
+# versionado aqui. Ele e autocontido — basta para restaurar orquestracao
+# funcionando numa maquina nova, sem precisar do diretorio de fonte.
+plugins/opencode-quests/

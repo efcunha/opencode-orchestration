@@ -1,0 +1,97 @@
+kind: quest
+name: Dev Cycle
+description: "plan → build → review → ship — sem atalhos"
+context: >
+  Repo: cloudpilot-deploy. Stack: FastAPI + SQLAlchemy async + Celery (backend),
+  React 19 + TanStack Router/Query + Vite 6 (frontend).
+  Sempre rodar testes e lint antes de avançar fase.
+
+  MODELO: esta quest NAO roteia. Todos os estagios rodam no agente ativo da sessao,
+  qualquer que seja ele. A linha anterior aqui dizia "Modelo principal: MiniMax M3,
+  Reasoning: DeepSeek V4 Pro" — era prosa, nunca foi cabeamento, e o texto do bloco
+  context nao troca modelo nenhum. Para rotear de fato, declare `agent:` e `model:`
+  por estagio, como em finops-task.yaml.
+
+stages:
+  - id: plan
+    description: "Planejamento e análise — somente leitura"
+    instruction: >
+      Leia código relevante, documentação e requisitos.
+      Entenda o escopo completo da tarefa.
+      Crie plano detalhado com:
+        - Arquivos que serão modificados/criados
+        - Critérios de aceite claros
+        - Dependências entre tarefas
+        - Riscos identificados
+      NÃO escreva código. NÃO edite arquivos. NÃO crie migrations.
+      Apresente o plano para aprovação humana.
+    checklist:
+      - "Requisitos entendidos completamente"
+      - "Arquivos afetados listados"
+      - "Critérios de aceite definidos"
+      - "Riscos identificados"
+      - "Plano apresentado ao usuário"
+    next:
+      proceed: build
+      rethink: plan
+
+  - id: build
+    description: "Implementação incremental"
+    instruction: >
+      Implemente SOMENTE o que foi planejado na fase anterior.
+      Para cada tarefa:
+        1. Escreva teste primeiro (RED)
+        2. Implemente código mínimo para passar (GREEN)
+        3. Refatore se necessário (REFACTOR)
+        4. Execute testes: pytest (backend) ou vitest (frontend)
+        5. Execute lint: ruff check (backend) ou tsc --noEmit (frontend)
+      NÃO toque em arquivos fora do escopo planejado.
+      NÃO faça commit ou push.
+      NÃO pule para review sem testes passando.
+    checklist:
+      - "Todos arquivos planejados modificados"
+      - "Nenhum arquivo fora do escopo tocado"
+      - "Testes escritos e passando"
+      - "Lint/typecheck sem erros"
+      - "Build compila sem erros"
+    next:
+      done: review
+      fix: plan
+
+  - id: review
+    description: "Revisão de qualidade em 5 eixos"
+    instruction: >
+      Revise TODAS as mudanças feitas na fase build em 5 eixos:
+        1. Correctness — Atende spec? Edge cases tratados? Testes adequados?
+        2. Readability — Nomes claros? Lógica direta? Bem organizado?
+        3. Architecture — Segue padrões existentes? Boundaries corretas?
+        4. Security — Input validado? Secrets seguros? Auth verificado?
+        5. Performance — Sem N+1? Sem operações unbounded?
+      Categorize achados como: Critical, Important, Suggestion.
+      Se houver achados Critical: volte para build.
+      Se não houver Critical: avance para ship.
+    checklist:
+      - "5 eixos revisados com evidências"
+      - "Zero achados Critical pendentes"
+      - "Achados Important endereçados ou justificados"
+      - "Testes continuam passando após correções"
+    next:
+      approve: ship
+      reject: build
+
+  - id: ship
+    description: "Entrega final — resumo e evidências"
+    instruction: >
+      Confirme que todos critérios de aceite do plano foram atendidos.
+      Produza resumo final com:
+        - Lista de arquivos modificados/criados
+        - Evidências de testes passando
+        - Achados de review endereçados
+        - Qualquer debt técnico aceito conscientemente
+      NÃO faça commit ou push (usuário decide quando).
+      Apresente resumo ao usuário.
+    checklist:
+      - "Todos critérios de aceite atendidos"
+      - "Resumo de mudanças apresentado"
+      - "Evidências de testes anexadas"
+      - "Nenhum achado Critical aberto"

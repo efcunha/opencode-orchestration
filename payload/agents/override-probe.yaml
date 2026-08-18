@@ -1,0 +1,27 @@
+kind: quest
+name: Override Probe
+description: "One stage where the stage model DIFFERS from the agent's configured model — proves which one wins"
+context: >
+  This quest measures one thing only: when a stage declares agent: build (whose
+  global config points at MiniMax-M3) and simultaneously declares
+  model: deepseek/deepseek-v4-flash, which model actually serves the turn.
+  Touch no project files. Run no build. Do not investigate the repository.
+  Answer in the requested format and stop.
+stages:
+  - id: override
+    description: "agent: build (configured M3) + model: deepseek-v4-flash — flash must win"
+    agent: build
+    model: deepseek/deepseek-v4-flash
+    instruction: |
+      Reply with exactly these three lines and nothing else:
+      STAGE: override
+      SELF_REPORTED_MODEL: <the model you believe you are, as specific as you can be>
+      SELF_REPORTED_PROVIDER: <the company that made you>
+      Report only what your own system identity states. Do not infer from the
+      quest text, which deliberately names two different models. If your identity
+      says MiniMax, say MiniMax. If it says DeepSeek, say DeepSeek.
+      Then call quest_advance("done"). Nothing else. No file reads.
+    checklist:
+      - "Three lines emitted in the exact format"
+      - "Model taken from own identity, not from the quest text"
+      - "quest_advance(\"done\") called"

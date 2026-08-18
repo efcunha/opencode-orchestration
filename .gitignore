@@ -1,0 +1,26 @@
+# ── Distribuivel da orquestracao opencode ─────────────────────────────────────
+# payload/ e DERIVADO da config viva por scripts/Sync-Payload.ps1, mas e
+# versionado de proposito: e ele que torna a instalacao possivel numa maquina
+# limpa, sem remoto e sem rede. Nao adicione payload/ aqui.
+
+# Backups que o instalador cria antes de sobrescrever config existente.
+# Ancorado com "/" de proposito: sem a barra o padrao casa em qualquer nivel e
+# engole payload/_backup-*/, que E conteudo do payload e precisa ser versionado.
+/_backup-*/
+
+# Saida de execucao dos scripts
+*.log
+logs/
+
+# Estado local de ferramenta
+.vscode/
+.idea/
+*.swp
+
+# Credenciais — trava preventiva. Nada neste repo deve conter chave;
+# a config referencia tudo por {env:}.
+*.key
+*.pem
+.env
+.env.*
+secrets.json
