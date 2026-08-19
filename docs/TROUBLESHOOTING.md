@@ -43,6 +43,58 @@ Contornos, em ordem de preferência:
 Se acontecer no TUI, aí é outra coisa: verifique se o estágio anterior chamou
 `quest_advance` e se o `next` do YAML aponta para um `id` que existe.
 
+## O TUI travou em Plan Mode
+
+Sintoma: o estágio roteado recebe a instrução, mas em vez de chamar
+`quest_advance` o modelo emite um texto tipo "Estou em Plan Mode (read-only) —
+não executo nada" e o turno fecha. Sem erro, sem toast, a quest para em
+silêncio.
+
+Causa: o opencode TUI tem dois modos acessíveis por Tab — Plan (read-only, o
+modelo só planeja) e Build (o modelo pode usar ferramentas). São modos do TUI,
+independentes dos agentes `plan`/`build` da orquestração — colisão de nome.
+Quando o TUI está em Plan Mode e o plugin despacha um estágio via
+`client.session.promptAsync`, a chamada retorna sucesso (o servidor não sabe
+que o turno vai ser improdutivo) e o plugin não tem como distinguir isso de
+um turno normal. O resultado é o modelo emitir o plano como texto puro, sem
+chamar ferramentas — em particular, sem `quest_advance`.
+
+Auto-recovery (watchdog). Desde 2026-08-19 o plugin detecta e recupera
+automaticamente. Em
+[`payload/plugins/opencode-quests.ts`](../../payload/plugins/opencode-quests.ts):
+
+- Quando `flushPendingDispatch` entrega um estágio com sucesso, ele arma um
+  flag (`dispatchedStageId`, `dispatchedStageMessage`). Linhas 587-591.
+- Se `quest_advance` é chamado antes do próximo `session.idle`, o flag é
+  limpo — sinal positivo de que o modelo executou. Linhas 740-742.
+- Se o próximo `session.idle` chega com o flag ainda armado, o estágio
+  travou. O plugin mostra um toast de aviso e re-despacha sem
+  `agent`/`model`, indo para qualquer agente ativo no TUI naquele momento.
+  Se o usuário já apertou Tab para Build, o retry cai lá. Linhas 783-811.
+- Se o retry também trava, tenta mais uma vez (máximo de 2 retries,
+  `MAX_STALL_RETRIES`). Linhas 795, 481.
+- Depois de 2 falhas, cai para TUI injection
+  (`clearPrompt` → `appendPrompt` → `submitPrompt`), que funciona
+  independente do modo. Linhas 813-817.
+- O watchdog é resetado em `clear()` (quest finalizada/parada) e em
+  `quest_advance` bem-sucedido, para não disparar falsos positivos em
+  quests futuras. Linhas 614-616, 740-742.
+
+O que você vê durante a recuperação:
+
+```
+Stage "preflight" stalled (Plan Mode?) — retry 1/2 on current agent
+```
+
+Se o retry funcionar, a toast some e a quest continua. Se cair no fallback
+de TUI injection, a quest também segue — mas com a ressalva de que o
+estágio rodou sem as ferramentas, então o resultado é texto puro (o que o
+próximo estágio recebe como contexto).
+
+Se você precisa evitar o problema de origem: troque o TUI para Build antes
+de disparar a quest, ou ajuste o YAML para que estágios que dependem de
+ferramentas não sejam roteados para o agente `plan`.
+
 ## Uma quest se dividiu em duas sessões
 
 Sintoma: uma sessão tem só o primeiro estágio, outra só o segundo. A segunda
