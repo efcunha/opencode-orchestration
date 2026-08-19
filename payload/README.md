@@ -7,6 +7,8 @@ Versionado em 2026-08-18. Templates com `{{nodeModules}}`, `{{userHome}}` e
 `{{userAgents}}` sao resolvidos na instalacao, em
 [`scripts/Install-Orchestration.ps1:Resolve-Template`](../../scripts/Install-Orchestration.ps1).
 
+> **Idioma:** tambem disponivel em ingles ([`README.en.md`](README.en.md)).
+
 ## O que esta aqui
 
 | Caminho | O que e |

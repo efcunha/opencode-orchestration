@@ -5,6 +5,8 @@ para implementacao, **DeepSeek V4 Pro** para planejamento e diagnostico,
 **DeepSeek V4 Flash** para revisao e subagentes — com roteamento por estagio de
 quest, medido e verificavel.
 
+> **Idioma:** tambem disponivel em ingles ([`README.en.md`](README.en.md)).
+
 A configuracao e portatil. `payload/opencode.jsonc` e um template com placeholders
 `{{nodeModules}}`, `{{userHome}}` e `{{userAgents}}` que o instalador resolve
 para paths locais na primeira execucao. Nenhum caminho hardcoded de maquina

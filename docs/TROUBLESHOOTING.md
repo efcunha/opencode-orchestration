@@ -4,6 +4,8 @@ Modos de falha observados, com o sintoma primeiro. Comece rodando
 `.\scripts\Test-Orchestration.ps1` — ele cobre a maioria dos casos abaixo e
 aponta o item exato.
 
+> **Idioma:** tambem disponivel em ingles ([`TROUBLESHOOTING.en.md`](TROUBLESHOOTING.en.md)).
+
 ## O estágio rodou no modelo errado
 
 **Confirme antes de investigar.** O autorrelato do modelo não é evidência

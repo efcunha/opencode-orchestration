@@ -4,6 +4,8 @@ Instalar a orquestracao multi-LLM numa maquina nova. O `payload/` e completo
 (nao precisa de rede nem de remoto git) e portatil (substitui placeholders com
 paths locais na instalacao).
 
+> **Idioma:** tambem disponivel em ingles ([`INSTALL.en.md`](INSTALL.en.md)).
+
 ## 1. Pre-requisitos
 
 O instalador aborta cedo se faltar o obrigatorio. Os quatro primeiros itens da

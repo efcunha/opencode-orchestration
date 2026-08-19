@@ -3,6 +3,8 @@
 Como o roteamento multi-LLM funciona de fato, e por que cada peça está onde
 está. Leia antes de mexer na configuração.
 
+> **Idioma:** tambem disponivel em ingles ([`ARCHITECTURE.en.md`](ARCHITECTURE.en.md)).
+
 ## As três camadas
 
 ```

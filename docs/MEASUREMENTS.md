@@ -3,6 +3,8 @@
 Registro detalhado do que foi medido em 2026-08-18, com método e dados brutos.
 O resumo está no README; aqui está o que permite conferir em vez de acreditar.
 
+> **Idioma:** tambem disponivel em ingles ([`MEASUREMENTS.en.md`](MEASUREMENTS.en.md)).
+
 ## Método
 
 Duas perguntas, dois instrumentos.
