@@ -250,6 +250,10 @@ O probe roda dois estagios em modelos diferentes e o segundo repete um token
 que o primeiro inventou. Como conferir o modelo real por metadado de API, e nao
 pelo que o modelo diz de si: [`MEASUREMENTS.md`](MEASUREMENTS.md).
 
+Para o guia completo de uso (modos de `quest(...)`, slash command `/quest`,
+regras operacionais, tres jeitos de disparar), ver
+[`docs/USAGE.md`](docs/USAGE.md).
+
 Rode uma quest por vez. O estado da quest e global ao processo, nao por sessao
 — duas concorrentes se dividem entre sessoes. Detalhe em
 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md).

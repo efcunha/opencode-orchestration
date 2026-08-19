@@ -256,6 +256,10 @@ The probe runs two stages on different models and the second repeats a token
 the first one invented. How to verify the actual model via API metadata, not
 by what the model says about itself: [`MEASUREMENTS.md`](MEASUREMENTS.md).
 
+For the full usage guide (modes of `quest(...)`, slash command `/quest`,
+operational rules, three ways to fire), see
+[`docs/USAGE.md`](docs/USAGE.md).
+
 Run one quest at a time. Quest state is process-global, not per session —
 two concurrent quests split between sessions. Detail in
 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md).

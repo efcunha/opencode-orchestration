@@ -189,6 +189,7 @@ ao processo e perda de estagio em headless — estao em
 | Documento | Quando |
 |---|---|
 | [`docs/INSTALL.md`](docs/INSTALL.md) | Instalar / reinstalar / desinstalar |
+| [`docs/USAGE.md`](docs/USAGE.md) | Usar o orquestrador no chat: `quest(...)`, `/quest`, regras operacionais |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Entender como o roteamento funciona antes de mexer |
 | [`docs/MEASUREMENTS.md`](docs/MEASUREMENTS.md) | Conferir a evidencia em vez de acreditar |
 | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Algo nao roteou, ou um estagio nao rodou |

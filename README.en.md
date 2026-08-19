@@ -191,6 +191,7 @@ state and stage loss in headless — are covered in
 | Document | When |
 |---|---|
 | [`docs/INSTALL.md`](docs/INSTALL.md) | Install / reinstall / uninstall |
+| [`docs/USAGE.md`](docs/USAGE.md) | Use the orchestrator in chat: `quest(...)`, `/quest`, operational rules |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Understand how routing works before touching it |
 | [`docs/MEASUREMENTS.md`](docs/MEASUREMENTS.md) | Check the evidence instead of trusting claims |
 | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Something didn't route, or a stage didn't run |
