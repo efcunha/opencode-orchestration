@@ -1,0 +1,53 @@
+kind: quest
+name: Model Routed Dev
+description: "Plan -> Build -> Review the user's request across three agent slots; each stage is served by that slot's configured model"
+context: >
+  The user's request is delivered in the "Task" block above the instruction.
+  Each stage runs on a different agent slot (plan, build, review), so it is
+  served by that slot's configured model automatically. Advance between
+  stages by calling quest_advance with the id shown under "Next".
+stages:
+  - id: plan
+    description: "Stage 1 - plan the request (plan slot)"
+    agent: plan
+    instruction: |
+      The user's request is in the "Task" block of this message. If that block
+      is empty, read the user's original request from the conversation context.
+      Produce ONLY a short plan:
+        - Goal (1 sentence)
+        - Files to add or modify (paths)
+        - Public API change (if any)
+        - Test cases (3-5 bullets)
+      Do NOT write code or edit any file.
+      When done, call quest_advance("build").
+    checklist:
+      - "Plan emitted in the requested format"
+      - "No code or file edits produced"
+      - "quest_advance(\"build\") called"
+    next: build
+
+  - id: build
+    description: "Stage 2 - implement the plan (build slot)"
+    agent: build
+    instruction: |
+      Read the plan from the previous stage and the user's request in the
+      "Task" block. Implement the change exactly as planned using the
+      write/edit tools. When done, list the files you changed and call
+      quest_advance("review").
+    checklist:
+      - "Files from the plan were touched"
+      - "quest_advance(\"review\") called"
+    next: review
+
+  - id: review
+    description: "Stage 3 - review against plan and request (review slot)"
+    agent: review
+    instruction: |
+      Compare the implementation against the plan and the user's request in
+      the "Task" block. Report divergences, defects, and anything missing.
+      If everything is correct, call quest_advance("done"). If problems were
+      found, describe them, then still call quest_advance("done") so the quest
+      completes and the user can decide the next step.
+    checklist:
+      - "Divergences and defects reported"
+      - "quest_advance(\"done\") called"

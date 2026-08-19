@@ -42,6 +42,8 @@ type QuestState = {
   currentStageId: string
   startedAt: number
   paused: boolean
+  /** The user's task/request, captured from the `input` tool arg. Shown to every stage. */
+  input?: string
 }
 
 // ── constants ──
@@ -349,6 +351,13 @@ function formatStageMessage(state: QuestState): string {
   }
   lines.push("━".repeat(40))
 
+  // Task block — the user's request, shown every message
+  if (state.input) {
+    lines.push("📋 Task:")
+    lines.push(`  ${state.input}`)
+    lines.push("━".repeat(40))
+  }
+
   // Context block — shown every message
   if (state.quest.context || stage?.context) {
     lines.push("📋 Context:")
@@ -639,13 +648,14 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
     }
   }
 
-  const startQuest = (quest: Quest) => {
+  const startQuest = (quest: Quest, input?: string) => {
     clear()
     state = {
       quest,
       currentStageId: quest.stages[0]!.id,
       startedAt: Date.now(),
       paused: false,
+      input: input?.trim() ? input.trim() : undefined,
     }
     refreshHb()
     toast(`Quest started: "${quest.name}"`, "info", 4000)
@@ -664,13 +674,14 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
 
     tool: {
       quest: tool({
-        description: `Start a quest. No args = help. Use file: to load by filename, name: to find by quest name, or schema: to create inline.`,
+        description: `Start a quest. No args = help. Use file: to load by filename, name: to find by quest name, or schema: to create inline. Pass input: to hand the quest a task (shown to every stage).`,
         args: {
           file: z.string().optional().describe(`Load from ${AGENTS_DIR}/name.yaml (matches filename).`),
           name: z.string().optional().describe("Find and load a quest by its name field (case-insensitive, scans all .yaml files)."),
           schema: z.record(z.string(), z.any()).optional().describe("Create inline from schema object."),
+          input: z.string().optional().describe("The user's task/request this quest should accomplish. Injected into every stage as a 'Task' block."),
         },
-        execute: async (args: { file?: string; name?: string; schema?: Record<string, any> }, context?: { sessionID?: string; directory?: string }) => {
+        execute: async (args: { file?: string; name?: string; schema?: Record<string, any>; input?: string }, context?: { sessionID?: string; directory?: string }) => {
           if (context?.sessionID) sessionID = context.sessionID
           const dir = context?.directory
 
@@ -684,7 +695,7 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
                 : ` No .yaml files in ${questDirs(dir).join(" nor ")} — is the session rooted at the right project?`
               return result + hint
             }
-            startQuest(result.quest)
+            startQuest(result.quest, args.input)
             return `Quest "${result.quest.name}" loaded from ${result.path}.\n\n${await deliverStage()}`
           }
 
@@ -692,7 +703,7 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
           if (args.name !== undefined && args.name !== "") {
             const result = resolveQuestByName(args.name.trim(), dir)
             if (typeof result === "string") return result
-            startQuest(result.quest)
+            startQuest(result.quest, args.input)
             return `Quest "${result.quest.name}" loaded from ${result.path}.\n\n${await deliverStage()}`
           }
 
@@ -700,7 +711,7 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
           if (args.schema !== undefined) {
             const result = validateQuestSchema(args.schema)
             if (typeof result === "string") return result
-            startQuest(result)
+            startQuest(result, args.input)
             return `Quest "${result.name}" created.\n\n${await deliverStage()}`
           }
 
@@ -716,6 +727,7 @@ Usage:
   quest(file: "filename")  → load from ${AGENTS_DIR}/filename.yaml
   quest(name: "Quest Name")→ find by quest name (scans all files)
   quest(schema: {...})     → create inline from schema object
+  quest(..., input: "...") → pass the user's task (shown to every stage)
 
 Searching (project first, then global):
 ${questDirs(dir).map(d => `  ${d}`).join("\n")}
