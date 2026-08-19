@@ -47,7 +47,7 @@ auth.json
 # que nao existe em nenhum remoto publicado, e um clone quebraria.
 #
 # O artefato que o opencode REALMENTE carrega e o arquivo achatado
-# plugins/opencode-quests.ts, gerado por `npm run deploy`, e ESSE arquivo e
-# versionado aqui. Ele e autocontido — basta para restaurar orquestracao
-# funcionando numa maquina nova, sem precisar do diretorio de fonte.
+# plugins/opencode-quests.ts. ESSE arquivo e versionado aqui — ele e
+# autocontido e basta para restaurar orquestracao funcionando numa maquina nova,
+# sem precisar do diretorio de fonte.
 plugins/opencode-quests/

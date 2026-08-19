@@ -30,7 +30,9 @@
   },
   "dependencies": {
     "@modelcontextprotocol/server-memory": "*",
-    "@modelcontextprotocol/server-sequential-thinking": "*",
+    "@modelcontextprotocol/server-sequential-thinking": "*"
+  },
+  "optionalDependencies": {
     "opencode-rag-plugin": "*"
   },
   "keywords": [

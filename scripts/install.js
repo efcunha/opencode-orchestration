@@ -7,7 +7,7 @@
  *   1. Detecta caminhos locais: `npm root -g`, $USERPROFILE, $HOME.
  *   2. Repassa para o instalador PowerShell como variaveis de ambiente.
  *   3. O PowerShell renderiza os templates `payload/opencode.jsonc` e
- *      `payload-symlinks.template.json`, copia o payload para TargetRoot,
+ *      `payload-symlinks.template.json`, copia o payload para TargetRoot e
  *      roda Test-Orchestration.ps1 no fim.
  *
  * Em modo `--postinstall` (chamado pelo npm apos instalar deps), NAO escreve
@@ -38,8 +38,7 @@ const isUninstall   = args.has('--uninstall');
 const isForce       = args.has('--force') || isPostinstall;
 
 const repoRoot  = path.resolve(__dirname, '..');
-const psScript  = path.join(repoRoot, 'scripts', isUninstall ? 'Install-Orchestration.ps1' : 'Install-Orchestration.ps1');
-const psTest    = path.join(repoRoot, 'scripts', 'Test-Orchestration.ps1');
+const psScript  = path.join(repoRoot, 'scripts', 'Install-Orchestration.ps1');
 
 function log(msg) { process.stdout.write(msg + os.EOL); }
 function warn(msg) { process.stderr.write('[opencode-orchestration] ' + msg + os.EOL); }
@@ -195,15 +194,11 @@ async function main() {
         await runPowerShell(pwsh, psArgs, env);
         log('');
         if (isForce) {
-            log('[opencode-orchestration] instalacao efetivada. Validando...');
+            log('[opencode-orchestration] instalacao efetivada.');
         } else {
-            log('[opencode-orchestration] simulacao concluida. Validando estado atual...');
+            log('[opencode-orchestration] simulacao concluida.');
         }
-        if (pwsh) {
-            await runPowerShell(pwsh,
-                ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', psTest, '-SkipNetwork'],
-                env);
-        }
+        log('Para verificar: npm run verify (offline) ou npm run verify:net (com chamadas de API).');
     } catch (err) {
         warn('instalacao falhou: ' + err.message);
         process.exit(err.message.includes('exited') ? 1 : 3);

@@ -132,16 +132,20 @@ payload. Edite a config viva.
 
 ## Mudei o plugin e nada aconteceu
 
-Três coisas, todas necessárias:
+Para quem edita o plugin de quests a partir do repositório de fonte (upstream +
+patches locais), três coisas, todas necessárias:
 
-1. `npm run deploy` no diretório do plugin — gera o `.ts` achatado que o
-   opencode carrega. Editar só a fonte não muda nada.
-2. **Reinicie o opencode.** Sessões de TUI já abertas seguem com o plugin
-   antigo.
-3. `Sync-Payload.ps1` para o achatado novo chegar ao payload.
+1. Rebuild do artefato achatado no repo de fonte — gera o `.ts` que o opencode
+   carrega. Editar só a fonte não muda nada.
+2. Copie o `plugins/opencode-quests.ts` gerado para `payload/plugins/` deste
+   repo e commite.
+3. **Reinicie o opencode.** Sessões de TUI já abertas seguem com o plugin
+   antigo. E `Sync-Payload.ps1` para o achatado novo chegar ao destino
+   instalado.
 
-Vale lembrar que o plugin tem dois repositórios, e o `src/` pode estar com
-alteração não commitada mesmo com o achatado atualizado — ou o contrário.
+Atenção: o plugin tem dois repositórios (este de config + o de fonte). O
+`payload/plugins/opencode-quests.ts` pode estar com edição não commitada mesmo
+com o fonte atualizado — ou o contrário. `git status` em ambos mostra.
 
 ## Uma skill não carrega
 

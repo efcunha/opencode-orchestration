@@ -16,10 +16,12 @@
   //       scripts/llm-defaults.json para config/llm-providers.json e edite.
   //       Nenhuma string de provider/modelo fica hardcoded aqui.
   //
-  //   {{opencodeProviderDescription(<slot>)}}
-  //       Texto descritivo por slot de agente. Hoje vem dos defaults; o
-  //       usuario pode sobrescrever via config/llm-providers.json em
-  //       agents.<slot>.description.
+  //   {{descAgent<Slot>}}, {{tempAgent<Slot>}}, {{modelAgent<Slot>}}
+  //       Por slot de agente (Plan/Build/Review/Bugfix/General/Explore):
+  //         modelAgent<Slot>    -> agents.<slot>.model        (string)
+  //         tempAgent<Slot>     -> agents.<slot>.temperature (numero, sem aspas)
+  //         descAgent<Slot>     -> agents.<slot>.description (string com aspas)
+  //       Vem de scripts/llm-defaults.json ou config/llm-providers.json.
   // ─────────────────────────────────────────────────────────────────────────
 
   "enabled_providers": {{enabledProvidersList}},
@@ -114,7 +116,13 @@
 
   "skills": {
     "paths": [
-      "skills/archify"
+      "skills/archify",
+      "skills/find-skills",
+      "skills/form-browser-validation",
+      "skills/igniter",
+      "skills/language",
+      "skills/post-change-validation",
+      "skills/trash"
     ]
   }
 }

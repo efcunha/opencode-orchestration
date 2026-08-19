@@ -25,7 +25,9 @@ npm install -g .
 O comando faz, em ordem:
 
 1. Instala as dependencias MCP declaradas em `dependencies` do `package.json`
-   (`@modelcontextprotocol/server-memory`, `server-sequential-thinking`).
+   (`@modelcontextprotocol/server-memory`, `server-sequential-thinking`) e as
+   `optionalDependencies` (hoje: `opencode-rag-plugin`, RAG semantico
+   local-first que o usuario ativa por projeto com `opencode-rag init`).
 2. Dispara o `postinstall`, que executa `scripts/install.js`.
 3. `install.js` detecta `npm root -g`, `$USERPROFILE` e `$HOME`, e chama o
    `Install-Orchestration.ps1 -Force`.
@@ -75,7 +77,8 @@ Para simular sem escrever nada:
 | `payload-symlinks.template.json` | Lista os symlinks esperados com `targetTemplate` |
 | `payload/agents/*.yaml` | Quests globais com roteamento por estagio |
 | `payload/plugins/*.ts` | Plugin de quests e crg-plugin (artefatos achatados) |
-| `payload/skills/` | Skills globais carregadas pelo opencode |
+| `payload/skills/` | Skills globais carregadas pelo opencode (`archify`, `find-skills`, `form-browser-validation`, `igniter`, `language`, `post-change-validation`, `trash`) |
+| `payload/mcp-docs/` | Documentacao de como invocar MCP servers via `mavis mcp call` (referencia, nao e carregada como skill) |
 | `scripts/Install-Orchestration.ps1` | Instala: detecta paths, instala MCPs, renderiza templates, copia, verifica |
 | `scripts/Test-Orchestration.ps1` | Verificacao independente, sai 1 em falha. Serve de gate em CI |
 | `scripts/Sync-Payload.ps1` | Compara o payload contra o destino renderizado (`-Check` sai 1 em divergencia) |

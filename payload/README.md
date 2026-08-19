@@ -12,10 +12,11 @@ Versionado em 2026-08-18. Templates com `{{nodeModules}}`, `{{userHome}}` e
 | Caminho | O que e |
 |---|---|
 | `opencode.jsonc` | Config unica: providers (`minimax-coding-plan`, `deepseek`, `ollama`), agentes (`plan`, `build`, `review`, `bugfix`, `general`, `explore`), MCPs, plugins, skills. |
-| `agents/*.yaml` | Quests globais com fallback — encontradas em qualquer projeto |
+| `agents/*.yaml` | Quests globais — encontradas em qualquer projeto |
 | `plugins/opencode-quests.ts` | Plugin de quests **achatado** (artefato que o opencode carrega) |
 | `plugins/crg-plugin.ts` | Plugin do code-review-graph |
-| `skills/` | Skills globais (playwright, memory, sequential-thinking, find-skills, etc.) |
+| `skills/` | Skills globais carregadas via `skills.paths` no `opencode.jsonc` (`archify`, `find-skills`, `form-browser-validation`, `igniter`, `language`, `post-change-validation`, `trash`) |
+| `mcp-docs/` | Documentacao de como invocar MCP servers via `mavis mcp call`. NAO e skill opencode — apenas referencia. |
 
 ## O que NAO vem para ca, e por que
 
@@ -30,34 +31,49 @@ nao precisa sabê-los. Cada projeto declara os seus proprios (no proprio
 
 ## As duas coisas nao obvias
 
-### O plugin de quests tem dois repositorios
+### O plugin de quests tem um repositorio proprio
 
-`plugins/opencode-quests/` e um clone de
-[lirrensi/opencode-quests](https://github.com/lirrensi/opencode-quests) — um
-upstream de terceiro — com os patches de roteamento por estagio commitados
-localmente na branch `fork/stage-routing`. Ele tem historia propria e esta
-ignorado aqui: rastrea-lo criaria um gitlink apontando para um commit que nao
-existe em nenhum remoto publicado, e um clone quebraria.
+O codigo-fonte do plugin vive em um repositorio interno separado
+(lirrensi/opencode-quests como upstream, com patches de roteamento na branch
+local `fork/stage-routing`). Esse repositorio nao e este repo de config e nem
+e gitlink — tem historia propria e fica ignorado aqui. Rastrear o fonte aqui
+criaria um gitlink apontando para um commit que nao existe em nenhum remoto
+publicado, e um clone quebraria.
 
-O que **esta** versionado aqui e `plugins/opencode-quests.ts`, o arquivo
-achatado que `npm run deploy` gera e que o opencode realmente carrega. Ele e
-autocontido, entao este repo sozinho basta para restaurar orquestracao
-funcionando. O diretorio de fonte so e necessario para *desenvolver* o plugin.
+O que **esta** versionado neste repo e `plugins/opencode-quests.ts`, o arquivo
+achatado que o opencode realmente carrega. Ele e autocontido — este repo sozinho
+basta para restaurar orquestracao funcionando. O diretorio de fonte so e
+necessario para *desenvolver* o plugin a partir do upstream.
 
-Consequencia pratica: quem edita `plugins/opencode-quests/src/index.ts` precisa
-commitar em **dois** lugares — no repo interno e, depois de `npm run deploy`,
-aqui.
+Consequencia pratica: quem edita `plugins/opencode-quests/src/index.ts` no repo
+interno precisa, depois do build, copiar o `.ts` achatado resultante para
+`payload/plugins/opencode-quests.ts` aqui e commitar.
 
-### O template de paths
+### O template
 
-O `opencode.jsonc` deste payload tem placeholders `{{nodeModules}}`,
-`{{userHome}}`, `{{userAgents}}`. O instalador resolve na instalacao:
+O `opencode.jsonc` deste payload tem tres grupos de placeholders, todos
+resolvidos na instalacao por `scripts/Install-Orchestration.ps1`:
+
+**Paths de maquina** (vem de `Resolve-Paths`):
 
 | Placeholder | Origem do valor resolvido |
 |---|---|
 | `{{nodeModules}}` | `npm root -g` (sobrescrito por `ORCH_NPM_GLOBAL_NODE_MODULES`) |
 | `{{userHome}}`    | `$env:USERPROFILE` (sobrescrito por `ORCH_USER_HOME`) |
 | `{{userAgents}}`  | `$userHome/.agents` (sobrescrito por `ORCH_USER_AGENTS`) |
+
+**Configuracao de LLM/providers** (vem de `Resolve-LlmConfig`, na ordem
+config/llm-providers.json -> scripts/llm-defaults.json):
+
+| Placeholder | Conteudo |
+|---|---|
+| `{{enabledProvidersList}}` | Array JSON inline `["a","b","c"]` |
+| `{{modelDefault}}`         | Campo `model` da raiz |
+| `{{smallModelDefault}}`    | Campo `small_model` da raiz |
+| `{{modelAgent<Slot>}}`     | `agents.<slot>.model` (Plan/Build/Review/Bugfix/General/Explore) |
+| `{{tempAgent<Slot>}}`      | `agents.<slot>.temperature` (numero, sem aspas) |
+| `{{descAgent<Slot>}}`      | `agents.<slot>.description` (string com aspas) |
+| `{{providersBlock}}`       | Bloco JSON completo do `provider` |
 
 Reinstalacao numa maquina nova reflete `npm root -g` local automaticamente;
 nenhuma secao da config precisa ser editada.

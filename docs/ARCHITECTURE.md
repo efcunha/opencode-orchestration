@@ -124,20 +124,23 @@ Por isso a revisão roteada por estágio costuma ser omitida — o estágio de
 revisão fica externo, em sessão separada, em vez de compartilhada com o
 mesmo modelo que acabou de escrever.
 
-## O plugin tem dois repositórios
+## O plugin tem um repositório próprio
 
-`plugins/opencode-quests/` é clone de
-[lirrensi/opencode-quests](https://github.com/lirrensi/opencode-quests) — um
-upstream de terceiro — com os patches de roteamento na branch local
-`fork/stage-routing`. Tem história própria e fica fora do repo de config:
-rastreá-lo criaria um gitlink para um commit que nenhum remoto publicado tem.
+O código-fonte do plugin vive em um repositório interno separado
+(lirrensi/opencode-quests como upstream, com patches de roteamento na branch
+local `fork/stage-routing`). Esse repositório não é este repo de config e nem
+é gitlink — tem história própria e fica fora daqui. Rastreá-lo aqui criaria um
+gitlink para um commit que nenhum remoto publicado tem.
 
-O artefato que o opencode carrega é o achatado `plugins/opencode-quests.ts`,
-gerado por `npm run deploy`, e **esse** é versionado e distribuído. É
+O artefato que o opencode carrega é o **arquivo achatado**
+`plugins/opencode-quests.ts`. Esse arquivo é versionado **neste** repo e é o
+único que precisa estar presente para a orquestração funcionar — ele é
 autocontido.
 
-Consequência prática: editar o plugin exige commitar em dois lugares — no repo
-interno, e depois de `npm run deploy`, no repo de config.
+Consequência prática: alterar o plugin é editar `plugins/opencode-quests.ts`
+direto aqui, commitar e rodar `.\scripts\Sync-Payload.ps1 -Check` antes do
+push. O repositório de fonte só é necessário para desenvolver o plugin a partir
+do upstream; para usar, este repo basta.
 
 ## Estado da quest é global ao processo
 

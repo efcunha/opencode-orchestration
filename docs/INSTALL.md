@@ -6,15 +6,20 @@ paths locais na instalacao).
 
 ## 1. Pre-requisitos
 
-O instalador aborta cedo se faltar o obrigatorio.
+O instalador aborta cedo se faltar o obrigatorio. Os quatro primeiros itens da
+tabela sao bloqueantes (verificados em `scripts/Install-Orchestration.ps1:Test-Prerequisites`):
+sem `node`, `npm`, `opencode` ou `git`, a instalacao nao prossegue. `pwsh` e
+tratado por `scripts/install.js:findPwsh` com fallback para `powershell.exe`;
+se nenhum dos dois estiver no PATH, `install.js` aborta antes de chamar o
+PowerShell.
 
-| Ferramenta | Para que | Verificado por |
-|---|---|---|
-| `node` 18+ | Runtime do opencode e dos MCPs em Node | `node -v` |
-| `npm` 9+ | Instalacao global das deps MCP e deste pacote | `npm -v` |
-| `pwsh` (PowerShell 7+) | Instalador, verificador, syncer | `pwsh -v` |
-| `opencode` | Ferramenta que consome a config | `opencode --version` |
-| `git` | Tracking do que foi escrito, em CI | `git --version` |
+| Ferramenta | Para que | Verificado por | Bloqueante? |
+|---|---|---|---|
+| `node` 18+ | Runtime do opencode e dos MCPs em Node | `node -v` | Sim |
+| `npm` 9+ | Instalacao global das deps MCP e deste pacote | `npm -v` | Sim |
+| `opencode` | Ferramenta que consome a config (`opencode serve` / `opencode run` / TUI) | `opencode --version` | Sim |
+| `git` | Clone de skills externas em `scripts/install-git-repos.json` | `git --version` | Sim |
+| `pwsh` (PowerShell 7+) | Instalador, verificador, syncer | `pwsh -v` | Sim (cai em `powershell.exe`) |
 
 Opcionais, ausencia nao bloqueia a instalacao:
 
@@ -209,7 +214,7 @@ O exemplo em `scripts/llm-providers.example.json` mostra Anthropic + MiniMax
 + Ollama. Ele e a fonte de verdade para o schema. `scripts/llm-defaults.json`
 tambem e fonte: se faltar um campo no seu override, copie de la.
 
-## 7. Dependencias que a instalacao nao resolve
+## 9. Dependencias que a instalacao nao resolve
 
 **Symlinks.** `payload-symlinks.template.json` lista os links que a configuracao
 espera. Recria-los no Windows exige Developer Mode ou shell elevado, o que nao se
@@ -219,16 +224,16 @@ de fingir que resolveu. Hoje ha um: `skills/archify` -> `~/.agents/skills/archif
 **Plugin de quests como fonte.** O payload traz `plugins/opencode-quests.ts`, o
 arquivo achatado que o opencode carrega — autocontido, suficiente para a
 orquestracao funcionar. O diretorio de fonte `plugins/opencode-quests/` **nao**
-vem: e clone de um upstream de terceiro
-([lirrensi/opencode-quests](https://github.com/lirrensi/opencode-quests)) com
-patches locais na branch `fork/stage-routing`. So e necessario para desenvolver
+vem: vive em um repositorio interno separado (upstream
+[lirrensi/opencode-quests](https://github.com/lirrensi/opencode-quests) com
+patches locais na branch `fork/stage-routing`). So e necessario para desenvolver
 o plugin, nao para usa-lo.
 
 **Skills locais.** Cada skill global em `payload/skills/` deve estar tambem em
 `~/.agents/skills/` para os symlinks resolverem. O instalador nao mexe em
 `~/.agents/`.
 
-## 8. Depois de instalar
+## 10. Depois de instalar
 
 Confirme que o roteamento por estagio chega ao modelo certo, em vez de
 confiar na configuracao:
@@ -247,7 +252,7 @@ Rode uma quest por vez. O estado da quest e global ao processo, nao por sessao
 — duas concorrentes se dividem entre sessoes. Detalhe em
 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md).
 
-## 9. Desinstalar
+## 11. Desinstalar
 
 ```bash
 npm uninstall -g opencode-orchestration
