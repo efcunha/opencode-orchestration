@@ -1,0 +1,99 @@
+kind: quest
+name: Model Routed Dev Probe
+description: "Three stages across plan/build/review agents — proves per-stage routing hits three different models AND context survives two handoffs"
+context: >
+  This quest exists only to measure plugin behaviour across three agent slots.
+  It touches no project files, runs no build, and changes nothing. Three
+  questions it answers:
+  (1) does plan-stage routing reach the plan agent's model,
+  (2) does build-stage routing reach the build agent's model,
+  (3) does review-stage routing reach the review agent's model, and
+  (4) does context (runtime-invented tokens) survive across both handoffs
+      (plan→build and build→review).
+  Answer exactly in the requested format. Do not investigate the repository.
+  Do not be helpful beyond the format.
+  Do NOT read any file, and in particular not this YAML. The probe tokens are
+  invented at runtime and are written nowhere on disk.
+  Your conversation context is a legitimate and expected source — reading it is
+  the entire point of the measurement. Do not treat "it did not arrive in the
+  latest instruction text" as "I do not have it".
+stages:
+  - id: probe-plan
+    description: "Stage 1 — should run on the plan agent's model"
+    agent: plan
+    instruction: |
+      You are stage 1 (probe-plan) of a 3-stage routing probe.
+      First, invent a PROBE_TOKEN of the exact shape P-NNNNN-NNNNN where each
+      NNNNN is five random digits you choose freely. Choose unpredictably; do not
+      reuse a value from any example.
+      Reply with exactly these four lines and nothing else:
+      STAGE: probe-plan
+      SELF_REPORTED_MODEL: <the model you believe you are, as specific as you can be>
+      SELF_REPORTED_PROVIDER: <the company that made you>
+      TOKEN_PLAN: <the PROBE_TOKEN you just invented>
+      Then call quest_advance("probe-build"). Nothing else. No commentary, no tool
+      calls other than quest_advance, no file reads.
+    checklist:
+      - "Four lines emitted in the exact format"
+      - "TOKEN_PLAN matches P-NNNNN-NNNNN"
+      - "quest_advance(\"probe-build\") called"
+    next: probe-build
+
+  - id: probe-build
+    description: "Stage 2 — should run on the build agent's model, must recall stage 1"
+    agent: build
+    instruction: |
+      You are stage 2 (probe-build) of a 3-stage routing probe. A different
+      stage (probe-plan) ran before you on a different model.
+      First, invent your own PROBE_TOKEN of the exact shape B-NNNNN-NNNNN where
+      each NNNNN is five random digits. Choose unpredictably.
+      Reply with exactly these six lines and nothing else:
+      STAGE: probe-build
+      SELF_REPORTED_MODEL: <the model you believe you are, as specific as you can be>
+      SELF_REPORTED_PROVIDER: <the company that made you>
+      TOKEN_BUILD: <the PROBE_TOKEN you just invented>
+      PRIOR_TOKEN_PLAN: <the TOKEN_PLAN value from the PREVIOUS stage, verbatim>
+      PRIOR_MODEL_PLAN: <what SELF_REPORTED_MODEL the previous stage claimed>
+      Rules for PRIOR_TOKEN_PLAN:
+        - Scan your ENTIRE context. If a value shaped like "P-<digits>-<digits>"
+          appears ANYWHERE, quote that value verbatim.
+        - Report what is LITERALLY PRESENT. Do not reason about how quests work.
+        - Write NO_CONTEXT only if no such value appears anywhere in your context.
+        - Saying NO_CONTEXT while the value is visible is the worst outcome.
+        - Do NOT guess or invent a plausible token.
+      Then call quest_advance("probe-review"). Nothing else.
+    checklist:
+      - "Six lines emitted in the exact format"
+      - "TOKEN_BUILD matches B-NNNNN-NNNNN"
+      - "PRIOR_TOKEN_PLAN is verbatim from stage 1 or literally NO_CONTEXT"
+      - "quest_advance(\"probe-review\") called"
+    next: probe-review
+
+  - id: probe-review
+    description: "Stage 3 — should run on the review agent's model, must recall stages 1 and 2"
+    agent: review
+    instruction: |
+      You are stage 3 (probe-review) of a 3-stage routing probe. Two stages ran
+      before you: probe-plan (stage 1) and probe-build (stage 2), each on a
+      different model.
+      Reply with exactly these seven lines and nothing else:
+      STAGE: probe-review
+      SELF_REPORTED_MODEL: <the model you believe you are, as specific as you can be>
+      SELF_REPORTED_PROVIDER: <the company that made you>
+      PRIOR_TOKEN_PLAN: <the TOKEN_PLAN value from stage 1, verbatim>
+      PRIOR_TOKEN_BUILD: <the TOKEN_BUILD value from stage 2, verbatim>
+      PRIOR_MODEL_PLAN: <what SELF_REPORTED_MODEL stage 1 claimed>
+      PRIOR_MODEL_BUILD: <what SELF_REPORTED_MODEL stage 2 claimed>
+      Rules for PRIOR_TOKEN fields:
+        - Scan your ENTIRE context. If values shaped like "P-<digits>-<digits>"
+          and "B-<digits>-<digits>" appear ANYWHERE, quote them verbatim.
+        - Report what is LITERALLY PRESENT. Do not reason about how quests work.
+        - Write NO_CONTEXT for any token not found anywhere in your context.
+        - Saying NO_CONTEXT while a value is visible corrupts the measurement.
+        - Do NOT guess, invent, or reconstruct tokens.
+      Then call quest_advance("done"). Nothing else.
+    checklist:
+      - "Seven lines emitted in the exact format"
+      - "PRIOR_TOKEN_PLAN is verbatim from stage 1 or NO_CONTEXT"
+      - "PRIOR_TOKEN_BUILD is verbatim from stage 2 or NO_CONTEXT"
+      - "quest_advance(\"done\") called"

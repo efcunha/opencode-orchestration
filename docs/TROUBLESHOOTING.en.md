@@ -281,3 +281,61 @@ $env:ORCH_NPM_GLOBAL_NODE_MODULES = (npm root -g)
   stage was actually served by the target model. For that, run
   `routing-probe` and read the metadata — see
   [`MEASUREMENTS.md`](MEASUREMENTS.md).
+
+## Quest started but Task block is empty
+
+Symptom: the quest starts and the first stage (usually `plan`) reports an
+empty "Task" block, or produces a generic plan without addressing the user's
+request.
+
+Cause: the `input` parameter was not passed correctly. All `quest()` tool
+parameters are **named** — positional arguments are not supported.
+
+Wrong:
+```
+quest(file: "model-routed-dev", "Create an HTML welcome page")
+```
+
+Right:
+```
+quest(file: "model-routed-dev", input: "Create an HTML welcome page")
+```
+
+The plugin shows a toast hint when `input` is missing and a quest file/name
+is specified: `Tip: pass the task as input: "your task here" (named
+parameter)`.
+
+Mitigation built into `model-routed-dev.yaml`: the plan stage's instruction
+includes a fallback — "If that block is empty, read the user's original
+request from the conversation context." This works when the user typed a
+request in the chat before calling `quest()`, but is unreliable if `quest()`
+was the first message in the session. Use the named `input:` parameter.
+
+## Stage timed out
+
+Symptom: toast reads `Stage "X" timed out (300s without quest_advance) —
+forcing quest completion`.
+
+Cause: the model produced output but never called `quest_advance` within
+the configured timeout (default: 5 minutes). This can happen when:
+
+1. The model misunderstood the instruction and did not call `quest_advance`.
+2. An API error caused the model's response to be truncated before the tool
+   call.
+3. The TUI was in Plan Mode and the watchdog retries were also exhausted
+   before the timeout fired.
+
+Resolution: re-fire the quest. If it persists, check whether the model
+supports tool calling reliably (some models drop tool calls under high
+output volume). Consider switching the affected stage to a more capable
+model via the `model:` field in the YAML.
+
+To change the timeout per quest, add a top-level `timeout:` field (seconds):
+
+```yaml
+kind: quest
+name: My Quest
+timeout: 600   # 10 minutes instead of default 5
+stages:
+  - id: ...
+```

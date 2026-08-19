@@ -34,6 +34,8 @@ type Quest = {
   name: string
   description?: string
   context?: string
+  /** Per-stage timeout in seconds. Overrides STAGE_TIMEOUT_MS default. */
+  timeout?: number
   stages: Stage[]
 }
 
@@ -52,6 +54,8 @@ const DWELL_MS = 10_000
 const HEARTBEAT_MS = 10_000
 const FIRE_DEFER_MS = 100
 const AGENTS_DIR = ".agents"
+/** Default max wall-clock time (ms) a stage may run before forced completion. */
+const STAGE_TIMEOUT_MS = 300_000
 
 // ── helpers: yaml loading ──
 
@@ -206,6 +210,9 @@ function validateQuestSchema(doc: any): Quest | string {
   if (typeof doc.name !== "string" || !doc.name.trim()) return "Schema error: name is required."
   if (doc.description !== undefined && typeof doc.description !== "string") return "Schema error: description must be a string."
   if (doc.context !== undefined && typeof doc.context !== "string") return "Schema error: context must be a string."
+  if (doc.timeout !== undefined) {
+    if (typeof doc.timeout !== "number" || doc.timeout <= 0) return "Schema error: timeout must be a positive number (seconds)."
+  }
   if (!Array.isArray(doc.stages) || doc.stages.length === 0) return "Schema error: stages must be a non-empty array."
 
   const stageIds = new Set<string>()
@@ -270,6 +277,7 @@ function validateQuestSchema(doc: any): Quest | string {
     name: doc.name.trim(),
     description: typeof doc.description === "string" ? doc.description.trim() : undefined,
     context: typeof doc.context === "string" ? doc.context.trim() : undefined,
+    timeout: typeof doc.timeout === "number" ? doc.timeout : undefined,
     stages: doc.stages.map((s: any) => ({
       id: s.id.trim(),
       description: typeof s.description === "string" ? s.description.trim() : undefined,
@@ -488,6 +496,8 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
   let dispatchedStageMessage: string | null = null
   let stallRetries = 0
   const MAX_STALL_RETRIES = 2
+  /** Per-stage wall-clock timeout. Forces quest completion if quest_advance is not called within the limit. */
+  let stageTimer: ReturnType<typeof setTimeout> | null = null
 
   // ── shared infra ──
 
@@ -496,6 +506,28 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
 
   const cancelDwell = () => {
     if (dwellTimer) { clearTimeout(dwellTimer); dwellTimer = null; dwellStartedAt = 0 }
+  }
+
+  const cancelStageTimeout = () => {
+    if (stageTimer) { clearTimeout(stageTimer); stageTimer = null }
+  }
+
+  const armStageTimeout = () => {
+    cancelStageTimeout()
+    if (!state || state.paused) return
+    const timeoutMs = state.quest.timeout
+      ? state.quest.timeout * 1000
+      : STAGE_TIMEOUT_MS
+    stageTimer = setTimeout(() => {
+      stageTimer = null
+      if (!state) return
+      const stageId = state.currentStageId
+      const timeoutSec = Math.round(timeoutMs / 1000)
+      toast(`Stage "${stageId}" timed out (${timeoutSec}s without quest_advance) — forcing quest completion`, "error", 8000)
+      const questName = state.quest.name
+      clear()
+      toast(`Quest force-completed: "${questName}" (timeout)`, "warning", 6000)
+    }, timeoutMs)
   }
 
   const startDwell = () => {
@@ -569,7 +601,10 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
     if (!state) return "No active quest."
     const message = formatStageMessage(state)
     const stage = getCurrentStage(state)
-    if (!stageNeedsRouting(stage)) return message
+    if (!stageNeedsRouting(stage)) {
+      armStageTimeout()
+      return message
+    }
 
     // Queue instead of dispatching now: see pendingDispatch for the race this avoids.
     pendingDispatch = { stage: stage!, message: evaluateBackticks(message) }
@@ -597,6 +632,7 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
         // quest_advance clearing this, the stage stalled (Plan Mode).
         dispatchedStageId = stage.id
         dispatchedStageMessage = message
+        armStageTimeout()
         return
       }
       toast(`Quest routing failed (${describeRoute(stage)}): ${failure} — delivering inline`, "warning")
@@ -612,6 +648,7 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
 
   const clear = () => {
     cancelDwell()
+    cancelStageTimeout()
     state = null
     inFlight = false
     isIdle = false
@@ -674,7 +711,7 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
 
     tool: {
       quest: tool({
-        description: `Start a quest. No args = help. Use file: to load by filename, name: to find by quest name, or schema: to create inline. Pass input: to hand the quest a task (shown to every stage).`,
+        description: `Start a quest. No args = help. Use file: to load by filename, name: to find by quest name, or schema: to create inline. Pass input: to hand the quest a task (shown to every stage). All parameters are NAMED — use input: "..." explicitly.`,
         args: {
           file: z.string().optional().describe(`Load from ${AGENTS_DIR}/name.yaml (matches filename).`),
           name: z.string().optional().describe("Find and load a quest by its name field (case-insensitive, scans all .yaml files)."),
@@ -684,6 +721,11 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
         execute: async (args: { file?: string; name?: string; schema?: Record<string, any>; input?: string }, context?: { sessionID?: string; directory?: string }) => {
           if (context?.sessionID) sessionID = context.sessionID
           const dir = context?.directory
+
+          // ── input hint: warn if quest is being started without an explicit input ──
+          if (!args.input && (args.file || args.name || args.schema)) {
+            toast(`Tip: pass the task as input: "your task here" (named parameter). Without it, the Task block is empty and the plan stage reads context as fallback.`, "info", 8000)
+          }
 
           // ── file mode ──
           if (args.file !== undefined && args.file !== "") {
@@ -752,6 +794,7 @@ Active quest commands: /quest [status|pause|resume|stop]`
           dispatchedStageId = null
           dispatchedStageMessage = null
           stallRetries = 0
+          cancelStageTimeout()
 
           const target = args.stage.trim()
           if (!isValidTransition(state, target)) {

@@ -20,6 +20,18 @@ quest(name: "Name")      -> finds by the `name:` field (case-insensitive)
 quest(schema: {...})     -> creates inline from a schema
 ```
 
+> **Important:** All parameters are named. Positional arguments are not
+> supported. To pass the user's task to the quest, always write
+> `input: "..."` explicitly:
+>
+> ```
+> quest(file: "model-routed-dev", input: "Create an HTML welcome page")
+> ```
+>
+> Without `input:`, the Task block shown to every stage will be empty.
+> The plan stage has a fallback (reads from conversation context), but
+> explicit is better.
+
 ### `quest()` — help
 
 Type `quest()` in the chat and the plugin responds with the usage, the

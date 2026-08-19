@@ -92,6 +92,11 @@ function maybeRunWizard() {
         if (force) {
             warn('wizard precisa de TTY (stdin nao e terminal interativo).');
         }
+        log('[opencode-orchestration] stdin is not a TTY — interactive wizard skipped.');
+        log('  Using defaults from scripts/llm-defaults.json.');
+        log('  To configure providers interactively later:');
+        log('    node scripts/wizard.js --output config/llm-providers.json --force');
+        log('  Or copy scripts/llm-providers.example.json to config/llm-providers.json and edit.');
         return false;
     }
     if (!force && !args.has('--postinstall')) return false;

@@ -23,7 +23,9 @@
     "postinstall": "node scripts/install.js --postinstall",
     "uninstall": "node scripts/install.js --uninstall",
     "verify": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/Test-Orchestration.ps1 -SkipNetwork",
+    "verify:en": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/Test-Orchestration.ps1 -SkipNetwork -Language en",
     "verify:net": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/Test-Orchestration.ps1",
+    "verify:net:en": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/Test-Orchestration.ps1 -Language en",
     "install:force": "node scripts/install.js --force",
     "sync": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/Sync-Payload.ps1",
     "sync:check": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/Sync-Payload.ps1 -Check"

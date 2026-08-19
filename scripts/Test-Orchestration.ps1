@@ -31,18 +31,67 @@
 [CmdletBinding()]
 param(
     [string]$TargetRoot = (Join-Path $env:USERPROFILE '.config\opencode'),
-    [switch]$SkipNetwork
+    [switch]$SkipNetwork,
+    [ValidateSet('pt','en')]
+    [string]$Language = ''
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# ── i18n ──
+if (-not $Language) {
+    $Language = if ($env:ORCH_LANGUAGE -and $env:ORCH_LANGUAGE -in @('pt','en')) { $env:ORCH_LANGUAGE } else { 'pt' }
+}
+
+$Labels = @{
+    'pt' = @{
+        Pass         = 'PASSA'
+        Fail         = 'FALHA'
+        Warn         = 'AVISO'
+        Verifying    = 'Verificando'
+        Files        = 'Arquivos'
+        EnvVars      = 'Variaveis de ambiente (somente presenca, derivado do manifesto LLM ativo)'
+        McpDeclared  = 'MCPs declarados'
+        Resolution   = 'Resolucao (de um diretorio vazio)'
+        ModelRefs    = 'Referencias de modelo'
+        Connectivity = 'Conectividade dos providers LLM (do manifesto ativo)'
+        Result       = 'Resultado'
+        Failures     = 'falha(s)'
+        Warnings     = 'aviso(s)'
+        NoneBlocking = 'nenhum bloqueante'
+        NoManifest   = 'sem manifesto - pulado'
+        NoProvider   = 'nenhum provider ativo requer env var'
+        Source       = 'fonte'
+    }
+    'en' = @{
+        Pass         = 'PASS'
+        Fail         = 'FAIL'
+        Warn         = 'WARN'
+        Verifying    = 'Verifying'
+        Files        = 'Files'
+        EnvVars      = 'Environment variables (presence only, derived from active LLM manifest)'
+        McpDeclared  = 'MCPs declared'
+        Resolution   = 'Resolution (from an empty directory)'
+        ModelRefs    = 'Model references'
+        Connectivity = 'LLM provider connectivity (from active manifest)'
+        Result       = 'Result'
+        Failures     = 'failure(s)'
+        Warnings     = 'warning(s)'
+        NoneBlocking = 'none blocking'
+        NoManifest   = 'no manifest - skipped'
+        NoProvider   = 'no active provider requires env var'
+        Source       = 'source'
+    }
+}
+$L = $Labels[$Language]
 
 $erros  = @()
 $avisos = @()
 
 function Test-Item {
     param([string]$Nome, [bool]$Ok, [string]$Detalhe = '', [switch]$Aviso)
-    $marca = if ($Ok) { 'PASSA' } elseif ($Aviso) { 'AVISO' } else { 'FALHA' }
+    $marca = if ($Ok) { $L.Pass } elseif ($Aviso) { $L.Warn } else { $L.Fail }
     $cor   = if ($Ok) { 'Green' } elseif ($Aviso) { 'Yellow' } else { 'Red' }
     $sufixo = if ($Detalhe) { " - $Detalhe" } else { '' }
     Write-Host ('  [{0}] {1}{2}' -f $marca, $Nome, $sufixo) -ForegroundColor $cor
@@ -60,11 +109,11 @@ function ConvertFrom-Jsonc {
 }
 
 Write-Host ''
-Write-Host "Verificando: $TargetRoot"
+Write-Host "$($L.Verifying): $TargetRoot"
 
 # --- 1. Arquivos -------------------------------------------------------------
 Write-Host ''
-Write-Host 'Arquivos'
+Write-Host $L.Files
 $cfgPath = Join-Path $TargetRoot 'opencode.jsonc'
 $cfgJson = $null
 Test-Item 'opencode.jsonc existe' (Test-Path $cfgPath)
@@ -84,7 +133,7 @@ Test-Item 'quests globais presentes' ($questFiles.Count -gt 0) "$($questFiles.Co
 
 # --- 2. Variaveis de ambiente (dinamico, do manifesto ativo) ----------------
 Write-Host ''
-Write-Host 'Variaveis de ambiente (somente presenca, derivado do manifesto LLM ativo)'
+Write-Host $L.EnvVars
 
 $cfgRoot = Split-Path -Parent $PSScriptRoot
 $cfgDefaults = Join-Path $cfgRoot 'scripts\llm-defaults.json'
@@ -109,15 +158,15 @@ if (-not $cfgUsed) {
         Test-Item $v (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($v)))
     }
     if ($envsNeeded.Count -eq 0) {
-        Write-Host '  (nenhum provider ativo requer env var)' -ForegroundColor DarkGray
+        Write-Host "  ($($L.NoProvider))" -ForegroundColor DarkGray
     } else {
-        Write-Host "  fonte: $cfgUsed" -ForegroundColor DarkGray
+        Write-Host "  $($L.Source): $cfgUsed" -ForegroundColor DarkGray
     }
 }
 
 # --- 3. MCPs declarados ------------------------------------------------------
 Write-Host ''
-Write-Host 'MCPs declarados'
+Write-Host $L.McpDeclared
 if ($cfgJson -and $cfgJson.PSObject.Properties.Name -contains 'mcp') {
     foreach ($m in $cfgJson.mcp.PSObject.Properties) {
         $def = $m.Value
@@ -140,7 +189,7 @@ if ($cfgJson -and $cfgJson.PSObject.Properties.Name -contains 'mcp') {
 
 # --- 4. Resolucao pelo opencode ----------------------------------------------
 Write-Host ''
-Write-Host 'Resolucao (de um diretorio vazio)'
+Write-Host $L.Resolution
 $tmpDir = Join-Path ([IO.Path]::GetTempPath()) ('oc-verify-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
 $modelos = @()
@@ -183,7 +232,7 @@ if ($cfgJson -and $cfgJson.PSObject.Properties.Name -contains 'agent') {
 
 # --- 5. Referencias de modelo ------------------------------------------------
 Write-Host ''
-Write-Host 'Referencias de modelo'
+Write-Host $L.ModelRefs
 if ($cfgJson) {
     foreach ($campo in @('model', 'small_model')) {
         $prop = $cfgJson.PSObject.Properties | Where-Object { $_.Name -eq $campo }
@@ -212,9 +261,9 @@ foreach ($qf in $questFiles) {
 # --- 6. Conectividade dos providers LLM (dinamico) --------------------------
 if (-not $SkipNetwork) {
     Write-Host ''
-    Write-Host 'Conectividade dos providers LLM (do manifesto ativo)'
+    Write-Host $L.Connectivity
     if (-not $cfgUsed) {
-        Write-Host '  sem manifesto - pulado' -ForegroundColor DarkGray
+        Write-Host "  $($L.NoManifest)" -ForegroundColor DarkGray
     } else {
         $cfg = Get-Content $cfgUsed -Raw | ConvertFrom-Json
         foreach ($p in $cfg.providers.PSObject.Properties) {
@@ -256,10 +305,10 @@ if (-not $SkipNetwork) {
 # --- Resumo ------------------------------------------------------------------
 Write-Host ''
 if ($erros.Count -eq 0) {
-    $extra = if ($avisos.Count) { " - $($avisos.Count) aviso(s), nenhum bloqueante" } else { '' }
-    Write-Host "Resultado: OK$extra" -ForegroundColor Green
+    $extra = if ($avisos.Count) { " - $($avisos.Count) $($L.Warnings), $($L.NoneBlocking)" } else { '' }
+    Write-Host "$($L.Result): OK$extra" -ForegroundColor Green
     exit 0
 }
-Write-Host "Resultado: $($erros.Count) falha(s)" -ForegroundColor Red
+Write-Host "$($L.Result): $($erros.Count) $($L.Failures)" -ForegroundColor Red
 $erros | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
 exit 1
