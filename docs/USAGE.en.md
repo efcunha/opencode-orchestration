@@ -117,7 +117,183 @@ plugin re-delivers the stage (does NOT create a new one). It is different
 from the Plan Mode stall: stall = turn closed without `quest_advance`;
 dwell = turn did not close.
 
-## 4. Three ways to fire
+## 4. Complete example: end-to-end
+
+A **three-stage** quest that shows routing between models, model override
+without changing agent, transitions driven by the model itself via
+`quest_advance`, and the toasts you will see during execution. This
+section is the concrete realization of sections 1 and 3 above.
+
+### 4.1 The quest definition
+
+Create `my-project/.agents/add-feature.yaml`:
+
+```yaml
+kind: quest
+name: Add Feature
+description: "Plan, implement and verify a small feature end-to-end across three stages"
+
+stages:
+  - id: design
+    description: "Stage 1 — plan the feature"
+    agent: plan
+    model: deepseek/deepseek-v4-pro
+    instruction: |
+      You are designing a small feature for the user's request at hand.
+      Do not write any code. Output ONLY a short Markdown design with:
+        - Goal (1 sentence)
+        - Files to add/modify (paths)
+        - Public API change (if any)
+        - Test cases (3-5 bullets)
+      Then call quest_advance("implement").
+    checklist:
+      - "Design emitted in the 4-bullet format"
+      - "No code produced"
+      - "quest_advance(\"implement\") called"
+    next:
+      proceed: implement
+
+  - id: implement
+    description: "Stage 2 — write the code"
+    agent: build
+    model: minimax-coding-plan/MiniMax-M3
+    instruction: |
+      You are implementing the design from the previous stage.
+      Read the prior turn's design output and translate it into code.
+      Use write/edit tools to create or modify the files exactly as designed.
+      When done, list the files you changed and call quest_advance("verify").
+    checklist:
+      - "Files mentioned in the design were touched"
+      - "quest_advance(\"verify\") called"
+    next:
+      proceed: verify
+
+  - id: verify
+    description: "Stage 3 — cheap verification on a different model"
+    agent: build                          # keep build's write tools
+    model: deepseek/deepseek-v4-flash    # but a cheap model
+    instruction: |
+      You are verifying the implementation from the previous stage.
+      Read the design and the files written. Confirm each test case from
+      the design is plausibly satisfied. Reply with one of:
+        VERIFIED: <one-line summary>
+      or
+        BLOCKED: <reason + next step>
+      Then call quest_advance("done").
+    checklist:
+      - "VERIFIED or BLOCKED emitted"
+      - "quest_advance(\"done\") called"
+    next:
+      proceed: done
+```
+
+The 3 stages exercise:
+
+- Routing by agent (`plan` -> `build` -> `build`)
+- Routing by model (DeepSeek Pro -> M3 -> DeepSeek Flash)
+- **Model override without changing agent** (last stage: `agent: build`
+  but `model: deepseek-v4-flash`) — the plugin uses the declared agent's
+  tools and only swaps the model
+- Transitions driven by the model via `quest_advance`, not by you
+
+### 4.2 Firing
+
+Persistent TUI (recommended):
+
+```bash
+cd my-project
+opencode
+```
+
+In the TUI prompt, with Tab confirmed on **Build**:
+
+```
+quest(file: "add-feature")
+```
+
+Headless:
+
+```bash
+opencode run --auto 'quest(file: "add-feature")'
+```
+
+### 4.3 What you see — toast timeline
+
+**Stage `design`** (DeepSeek V4 Pro, agent `plan`):
+
+| Who | What |
+|---|---|
+| You | Type `quest(file: "add-feature")` |
+| Plugin | Loads YAML, validates references, toast `Quest started: "Add Feature"` |
+| Plugin | Dispatches the `design` stage instruction to DeepSeek V4 Pro |
+| DeepSeek | Reads the request, emits a 4-bullet design, calls `quest_advance("implement")` |
+| Plugin | Heartbeat: `Quest: Add Feature \| Stage: design (1/3) \| 0:08 \| 🟢 idle` |
+
+**Stage `implement`** (MiniMax M3, agent `build`):
+
+| Who | What |
+|---|---|
+| Plugin | Sees the transition, switches state to `implement`, dispatches to M3 |
+| M3 | Reads the design DeepSeek just wrote (context crosses the handoff — `agent: plan` -> `agent: build`), writes the files, lists the diff, calls `quest_advance("verify")` |
+| Plugin | Heartbeat: `Quest: Add Feature \| Stage: implement (2/3) \| 0:42 \| 🟢 idle` |
+
+> M3 actually writes files. The plugin uses the **agent's** `build` tools
+> (write/edit/bash) even with the model override — that is why the `verify`
+> stage keeps `agent: build` and only swaps the model.
+
+**Stage `verify`** (DeepSeek V4 Flash, agent `build`):
+
+| Who | What |
+|---|---|
+| Plugin | Dispatches to DeepSeek V4 Flash (does not change agent — `agent: build` still applies) |
+| Flash | Reads the design + the files written, replies `VERIFIED: ...` or `BLOCKED: ...`, calls `quest_advance("done")` |
+| Plugin | Toast: `Quest complete: "Add Feature"` (info variant, 6000 ms) |
+
+### 4.4 Inspecting during execution
+
+At any moment, in the chat:
+
+```
+/quest status      # shows: Quest: Add Feature | Stage: implement (2/3) | 0:42 | ⏳ dwell 50s → remind
+/quest pause       # freezes mid-run
+/quest resume      # resumes from where it stopped
+/quest stop        # aborts — clears everything
+```
+
+To confirm routing really hit the target models (don't trust self-report),
+use the API metadata:
+
+```powershell
+opencode serve --port 4599 --hostname 127.0.0.1
+# in another terminal, while the quest runs:
+Invoke-RestMethod "http://127.0.0.1:4599/session/<id>/message" |
+    ForEach-Object { "$($_.info.role) $($_.info.providerID)/$($_.info.modelID)" }
+```
+
+You will see three `assistant` lines, one per stage, with `providerID/modelID`
+swapping from `deepseek/...` to `minimax-coding-plan/...` and back to
+`deepseek/...`. Real evidence, not self-report. Detail in
+[`MEASUREMENTS.md`](MEASUREMENTS.md).
+
+### 4.5 Extending this example
+
+Natural extension points:
+
+- **More agents**: add stages with `agent: bugfix` (DeepSeek Pro) or
+  `agent: explore` (Flash) for specific tasks
+- **Aggressive model override**: change `model` on any stage without
+  touching `agent`, to cheapen while keeping tools
+- **Inline schema**: replace the YAML with `quest(schema: {...})` for
+  quick prototypes
+- **More stages**: add a fourth stage (e.g. `document` with
+  `agent: general`) without rework
+
+The real quests `routing-probe` in
+`payload/agents/routing-probe.yaml` (two stages, proves routing and
+context) and `override-probe.yaml` (one stage, proves model override) are
+minimal templates for your own YAMLs.
+
+## 5. Three ways to fire
 
 ### Persistent TUI (recommended)
 
@@ -161,7 +337,7 @@ opencode run --attach http://127.0.0.1:4599 --dir <project> \
 This is the mode used in [`MEASUREMENTS.md`](MEASUREMENTS.md) to
 reproduce routing results.
 
-## 5. Operational rules
+## 6. Operational rules
 
 ### One quest at a time
 
@@ -213,7 +389,7 @@ there is already an active quest, it replaces it.
   `/quest status` to see where it is; `/quest stop` + redispatch is the
   pragmatic way out.
 
-## 6. Typical workflow
+## 7. Typical workflow
 
 1. Open the TUI: `opencode`.
 2. Confirm you are in Build (footer).

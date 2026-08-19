@@ -114,7 +114,182 @@ A dwell reminder dispara se o modelo nao produz output por ~90s — o plugin
 re-entrega o estagio (nao cria um novo). E diferente do stall por Plan Mode:
 stall = turno fechou sem `quest_advance`; dwell = turno nao fechou.
 
-## 4. Tres jeitos de disparar
+## 4. Exemplo completo: ponta-a-ponta
+
+Uma quest de **tres estagios** mostrando roteamento entre modelos, override
+de modelo sem trocar de agente, transicoes controladas pelo proprio modelo
+via `quest_advance`, e os toasts que voce vera durante a execucao. Esta
+secao e a concretizacao das secoes 1 e 3 acima.
+
+### 4.1 Definicao da quest
+
+Crie `meu-projeto/.agents/add-feature.yaml`:
+
+```yaml
+kind: quest
+name: Add Feature
+description: "Plan, implement and verify a small feature end-to-end across three stages"
+
+stages:
+  - id: design
+    description: "Stage 1 — plan the feature"
+    agent: plan
+    model: deepseek/deepseek-v4-pro
+    instruction: |
+      You are designing a small feature for the user's request at hand.
+      Do not write any code. Output ONLY a short Markdown design with:
+        - Goal (1 sentence)
+        - Files to add/modify (paths)
+        - Public API change (if any)
+        - Test cases (3-5 bullets)
+      Then call quest_advance("implement").
+    checklist:
+      - "Design emitted in the 4-bullet format"
+      - "No code produced"
+      - "quest_advance(\"implement\") called"
+    next:
+      proceed: implement
+
+  - id: implement
+    description: "Stage 2 — write the code"
+    agent: build
+    model: minimax-coding-plan/MiniMax-M3
+    instruction: |
+      You are implementing the design from the previous stage.
+      Read the prior turn's design output and translate it into code.
+      Use write/edit tools to create or modify the files exactly as designed.
+      When done, list the files you changed and call quest_advance("verify").
+    checklist:
+      - "Files mentioned in the design were touched"
+      - "quest_advance(\"verify\") called"
+    next:
+      proceed: verify
+
+  - id: verify
+    description: "Stage 3 — cheap verification on a different model"
+    agent: build                          # keep build's write tools
+    model: deepseek/deepseek-v4-flash    # but a cheap model
+    instruction: |
+      You are verifying the implementation from the previous stage.
+      Read the design and the files written. Confirm each test case from
+      the design is plausibly satisfied. Reply with one of:
+        VERIFIED: <one-line summary>
+      or
+        BLOCKED: <reason + next step>
+      Then call quest_advance("done").
+    checklist:
+      - "VERIFIED or BLOCKED emitted"
+      - "quest_advance(\"done\") called"
+    next:
+      proceed: done
+```
+
+Os 3 estagios exercitam:
+
+- Roteamento por agente (`plan` -> `build` -> `build`)
+- Roteamento por modelo (DeepSeek Pro -> M3 -> DeepSeek Flash)
+- **Override de modelo sem trocar de agente** (ultimo estagio: `agent: build`
+  mas `model: deepseek-v4-flash`) — o plugin usa as ferramentas do agente
+  declarado e so troca o modelo
+- Transicoes controladas pelo modelo via `quest_advance`, nao por voce
+
+### 4.2 Disparando
+
+TUI persistente (recomendado):
+
+```bash
+cd meu-projeto
+opencode
+```
+
+No prompt do TUI, com Tab confirmado em **Build**:
+
+```
+quest(file: "add-feature")
+```
+
+Headless:
+
+```bash
+opencode run --auto 'quest(file: "add-feature")'
+```
+
+### 4.3 O que voce vera — timeline de toasts
+
+**Estagio `design`** (DeepSeek V4 Pro, agente `plan`):
+
+| Quem | O que |
+|---|---|
+| Voce | Digita `quest(file: "add-feature")` |
+| Plugin | Carrega YAML, valida referencias, toast `Quest started: "Add Feature"` |
+| Plugin | Despacha a instrucao do estagio `design` para DeepSeek V4 Pro |
+| DeepSeek | Le o pedido, produz design em 4 bullets, chama `quest_advance("implement")` |
+| Plugin | Heartbeat: `Quest: Add Feature \| Stage: design (1/3) \| 0:08 \| 🟢 idle` |
+
+**Estagio `implement`** (MiniMax M3, agente `build`):
+
+| Quem | O que |
+|---|---|
+| Plugin | Ve a transicao, troca estado para `implement`, despacha para M3 |
+| M3 | Le o design que DeepSeek acabou de escrever (contexto atravessa o salto — `agent: plan` -> `agent: build`), escreve os arquivos, lista diff, chama `quest_advance("verify")` |
+| Plugin | Heartbeat: `Quest: Add Feature \| Stage: implement (2/3) \| 0:42 \| 🟢 idle` |
+
+> O M3 escreve arquivos de verdade. O plugin usa as ferramentas do **agente**
+> `build` (write/edit/bash) mesmo com override de modelo — e por isso que o
+> estagio `verify` mantem `agent: build` mas troca o modelo.
+
+**Estagio `verify`** (DeepSeek V4 Flash, agente `build`):
+
+| Quem | O que |
+|---|---|
+| Plugin | Despacha para DeepSeek V4 Flash (sem trocar agente — `agent: build` continua valendo) |
+| Flash | Le o design + os arquivos escritos, responde `VERIFIED: ...` ou `BLOCKED: ...`, chama `quest_advance("done")` |
+| Plugin | Toast: `Quest complete: "Add Feature"` (variant info, 6000 ms) |
+
+### 4.4 Inspecionando durante a execucao
+
+A qualquer momento, no chat:
+
+```
+/quest status      # mostra: Quest: Add Feature | Stage: implement (2/3) | 0:42 | ⏳ dwell 50s → remind
+/quest pause       # congela no meio
+/quest resume      # retoma de onde parou
+/quest stop        # aborta — esquece tudo
+```
+
+Para confirmar que o roteamento realmente acertou os modelos (sem confiar em
+autorrelato), use o metadado de API:
+
+```powershell
+opencode serve --port 4599 --hostname 127.0.0.1
+# em outro terminal, com a quest rodando:
+Invoke-RestMethod "http://127.0.0.1:4599/session/<id>/message" |
+    ForEach-Object { "$($_.info.role) $($_.info.providerID)/$($_.info.modelID)" }
+```
+
+Voce vera tres linhas de `assistant`, uma por estagio, com `providerID/modelID`
+trocando de `deepseek/...` para `minimax-coding-plan/...` e voltando para
+`deepseek/...`. Evidencia real, nao autorrelato. Detalhe em
+[`MEASUREMENTS.md`](MEASUREMENTS.md).
+
+### 4.5 Adapte este exemplo
+
+Pontos de extensao naturais:
+
+- **Mais agentes**: adicione estagios com `agent: bugfix` (DeepSeek Pro) ou
+  `agent: explore` (Flash) para tarefas especificas
+- **Override agressivo de modelo**: troque `model` em qualquer estagio sem
+  mexer no `agent`, para baratear enquanto mantem ferramentas
+- **Schema inline**: substitua o YAML por `quest(schema: {...})` para
+  prototipos rapidos
+- **Mais estagios**: adicione um quarto estagio (ex.: `document` com
+  `agent: general`) sem retrabalhar o resto
+
+As quests reais `routing-probe` em `payload/agents/routing-probe.yaml` (dois
+estagios, prova roteamento e contexto) e `override-probe.yaml` (um estagio,
+prova override de modelo) sao templates minimas para seus proprios YAMLs.
+
+## 5. Tres jeitos de disparar
 
 ### TUI persistente (recomendado)
 
@@ -159,7 +334,7 @@ opencode run --attach http://127.0.0.1:4599 --dir <projeto> \
 E o modo usado em [`MEASUREMENTS.md`](MEASUREMENTS.md) para reproduzir
 os resultados de roteamento.
 
-## 5. Regras operacionais
+## 6. Regras operacionais
 
 ### Uma quest por vez
 
@@ -209,7 +384,7 @@ ativa, ela substitui.
   Tente `/quest status` para ver onde esta; `/quest stop` + redispatch
   e a saida pragmatica.
 
-## 6. Workflow tipico
+## 7. Workflow tipico
 
 1. Abre o TUI: `opencode`.
 2. Confirma que esta em Build (rodape).
