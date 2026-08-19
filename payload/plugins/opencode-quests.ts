@@ -463,6 +463,22 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
    */
   let pendingDispatch: { stage: Stage; message: string } | null = null
   let dispatching = false
+  /**
+   * Watchdog: tracks whether a routed dispatch produced a quest_advance call.
+   * When flushPendingDispatch fires successfully, dispatchedStageId is set.
+   * On the NEXT session.idle, if dispatchedStageId is still set (meaning the
+   * model's turn ended without calling quest_advance), the plugin treats the
+   * stage as stalled — typically because Plan Mode blocked tool calls.
+   *
+   * Recovery: re-dispatch the same stage WITHOUT specifying agent, which sends
+   * it to whatever agent the TUI is currently on (likely Build after the user
+   * pressed Tab). If that also fails, fall back to TUI injection. The goal is
+   * never stall silently.
+   */
+  let dispatchedStageId: string | null = null
+  let dispatchedStageMessage: string | null = null
+  let stallRetries = 0
+  const MAX_STALL_RETRIES = 2
 
   // ── shared infra ──
 
@@ -567,7 +583,13 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
     pendingDispatch = null
     try {
       const failure = await dispatchStage(stage, message)
-      if (!failure) return
+      if (!failure) {
+        // Arm the watchdog: if the next session.idle arrives without
+        // quest_advance clearing this, the stage stalled (Plan Mode).
+        dispatchedStageId = stage.id
+        dispatchedStageMessage = message
+        return
+      }
       toast(`Quest routing failed (${describeRoute(stage)}): ${failure} — delivering inline`, "warning")
       await client.tui.clearPrompt()
       await client.tui.appendPrompt({ body: { text: message } })
@@ -588,6 +610,10 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
     // session took over). Firing it would push a stage of a quest that no longer exists.
     pendingDispatch = null
     dispatching = false
+    // Reset watchdog so a stale stall detection doesn't fire in a future quest
+    dispatchedStageId = null
+    dispatchedStageMessage = null
+    stallRetries = 0
     if (hb) { clearInterval(hb); hb = null }
   }
 
@@ -710,6 +736,11 @@ Active quest commands: /quest [status|pause|resume|stop]`
           if (context?.sessionID) sessionID = context.sessionID
           if (!state) return "No active quest. Use quest() to start one."
 
+          // ── Clear stall watchdog: quest_advance was called, so the stage ran ──
+          dispatchedStageId = null
+          dispatchedStageMessage = null
+          stallRetries = 0
+
           const target = args.stage.trim()
           if (!isValidTransition(state, target)) {
             const valid = getValidNext(state)
@@ -748,6 +779,46 @@ Active quest commands: /quest [status|pause|resume|stop]`
       if (t === "session.idle") {
         isIdle = true
         inFlight = false
+
+        // ── Stall detection (Plan Mode watchdog) ──
+        // If we dispatched a stage and the model's turn ended without calling
+        // quest_advance, the stage stalled. Recover by re-dispatching without
+        // a specific agent (goes to whatever the TUI is currently on), or fall
+        // back to TUI injection after MAX_STALL_RETRIES.
+        if (dispatchedStageId && !pendingDispatch && state) {
+          stallRetries++
+          const stageId = dispatchedStageId
+          const msg = dispatchedStageMessage!
+          dispatchedStageId = null
+          dispatchedStageMessage = null
+
+          if (stallRetries <= MAX_STALL_RETRIES) {
+            toast(`Stage "${stageId}" stalled (Plan Mode?) — retry ${stallRetries}/${MAX_STALL_RETRIES} on current agent`, "warning")
+            // Re-dispatch without agent/model — goes to whatever mode the TUI is on now
+            const body: Record<string, any> = { parts: [{ type: "text", text: msg }] }
+            try {
+              const res: any = await client.session.promptAsync({ path: { id: sessionID }, body })
+              if (res?.error) throw new Error(typeof res.error === "string" ? res.error : JSON.stringify(res.error))
+              // Re-arm watchdog for this retry
+              dispatchedStageId = stageId
+              dispatchedStageMessage = msg
+            } catch (e: any) {
+              toast(`Stall retry failed: ${e?.message ?? String(e)} — TUI fallback`, "error")
+              await client.tui.clearPrompt()
+              await client.tui.appendPrompt({ body: { text: msg } })
+              await client.tui.submitPrompt()
+              stallRetries = 0
+            }
+          } else {
+            toast(`Stage "${stageId}" stalled ${MAX_STALL_RETRIES}x — forcing TUI delivery`, "error")
+            stallRetries = 0
+            await client.tui.clearPrompt()
+            await client.tui.appendPrompt({ body: { text: msg } })
+            await client.tui.submitPrompt()
+          }
+          return
+        }
+
         // A queued routed stage takes priority: the turn is now closed, which is
         // exactly the condition it was waiting for. Do NOT also arm the dwell
         // reminder — the dispatch IS the delivery, and firing both would send the
