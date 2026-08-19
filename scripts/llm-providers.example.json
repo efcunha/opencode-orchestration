@@ -1,0 +1,89 @@
+{
+  "//": "EXEMPLO de override para os providers/agentes default. Este arquivo e DOCUMENTACAO - copie-o para ../config/llm-providers.json (gitignored) e edite livremente. O override totalmente substitui scripts/llm-defaults.json na instalacao, entao voce precisa listar todos os providers/agentes que quer usar.",
+  "//": "Para uma mudanca pontual (ex: trocar so o modelo default), edite apenas o campo relevante. Para trocar provedor inteiro, troque tudo.",
+  "//": "Campos suportados: enabled_providers, model, small_model, agents, providers. agents.<slot> aceita {model, temperature, description}.",
+
+  "enabled_providers": ["anthropic", "minimax-coding-plan", "ollama"],
+
+  "model":       "anthropic/claude-sonnet-4-5",
+  "small_model": "anthropic/claude-haiku-4-5",
+
+  "agents": {
+    "plan": {
+      "model":       "minimax-coding-plan/MiniMax-M3",
+      "temperature": 0.10,
+      "description": "Planejamento via MiniMax M3, comecando do contexto e indo ate o codigo."
+    },
+    "build": {
+      "model":       "minimax-coding-plan/MiniMax-M3",
+      "temperature": 0.20,
+      "description": "Implementacao via MiniMax M3."
+    },
+    "review": {
+      "model":       "anthropic/claude-sonnet-4-5",
+      "temperature": 0.10,
+      "description": "Revisao independente via Claude Sonnet 4.5 - linhagem diferente do executor."
+    },
+    "bugfix": {
+      "model":       "minimax-coding-plan/MiniMax-M3",
+      "temperature": 0.15,
+      "description": "Diagnostico e correcao de bugs via MiniMax M3."
+    },
+    "general": {
+      "model":       "anthropic/claude-haiku-4-5",
+      "temperature": 0.10,
+      "description": "Subagente de proposito geral, modelo barato."
+    },
+    "explore": {
+      "model":       "anthropic/claude-haiku-4-5",
+      "temperature": 0.10,
+      "description": "Subagente de exploracao de codigo, modelo barato."
+    }
+  },
+
+  "providers": {
+    "anthropic": {
+      "npm": "@ai-sdk/anthropic",
+      "options": {
+        "apiKey": "{env:ANTHROPIC_API_KEY}"
+      },
+      "whitelist": ["claude-sonnet-4-5", "claude-haiku-4-5"],
+      "models": {
+        "claude-sonnet-4-5": {
+          "name":  "Claude Sonnet 4.5",
+          "limit": { "context": 200000, "output": 64000 }
+        },
+        "claude-haiku-4-5": {
+          "name":  "Claude Haiku 4.5",
+          "limit": { "context": 200000, "output": 64000 }
+        }
+      }
+    },
+    "minimax-coding-plan": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "https://api.minimax.io/v1",
+        "apiKey":  "{env:MINIMAX_API_KEY}"
+      },
+      "whitelist": ["MiniMax-M3"],
+      "models": {
+        "MiniMax-M3": {
+          "name":  "MiniMax M3",
+          "limit": { "context": 1000000, "output": 131072 }
+        }
+      }
+    },
+    "ollama": {
+      "options": {
+        "baseURL": "http://localhost:11434/v1"
+      },
+      "whitelist": ["nomic-embed-text:latest"],
+      "models": {
+        "nomic-embed-text:latest": {
+          "name":  "nomic-embed-text:latest",
+          "limit": { "context": 32768, "output": 32768 }
+        }
+      }
+    }
+  }
+}

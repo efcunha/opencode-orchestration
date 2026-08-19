@@ -1,94 +1,189 @@
 # opencode-orchestration
 
-Instalador e documentação da orquestração multi-LLM do opencode: **MiniMax M3**
-para implementação, **DeepSeek V4 Pro** para planejamento e diagnóstico,
-**DeepSeek V4 Flash** para volume barato — com roteamento por estágio de quest,
-medido e verificável.
+Pacote npm instalavel da orquestracao multi-LLM do opencode: Exemplo **MiniMax M3**
+para implementacao, **DeepSeek V4 Pro** para planejamento e diagnostico,
+**DeepSeek V4 Flash** para revisao e subagentes — com roteamento por estagio de
+quest, medido e verificavel.
 
-## O problema que isto resolve
-
-Cada projeto declarava seus próprios providers e agentes. `agent: plan`
-resolvia para `deepseek-v4-pro` no cloudpilot, `9router/smart` no ameg e
-`nvidia-nim/nemotron` no cip. O mesmo arquivo de quest pedia o mesmo agente e
-recebia modelos diferentes conforme o diretório de onde rodava, o que torna
-roteamento por estágio impossível de raciocinar sobre.
-
-A configuração foi consolidada num único lugar global. Este repo é o que torna
-essa configuração instalável e verificável em outra máquina.
+A configuracao e portatil. `payload/opencode.jsonc` e um template com placeholders
+`{{nodeModules}}`, `{{userHome}}` e `{{userAgents}}` que o instalador resolve
+para paths locais na primeira execucao. Nenhum caminho hardcoded de maquina
+sobrevive entre instalacoes.
 
 ## Quickstart
 
-```powershell
-git clone <este-repo> D:\opencode-orchestration
-cd D:\opencode-orchestration
+### Instalar (uma vez por maquina)
 
-.\scripts\Install-Orchestration.ps1           # simula, não escreve nada
-.\scripts\Install-Orchestration.ps1 -Force    # efetiva, com backup antes
-.\scripts\Test-Orchestration.ps1              # verifica ponta a ponta
+Requer Node 18+, npm 9+ e PowerShell 7+ (`pwsh`) no PATH.
+
+```bash
+git clone <este-repo>
+cd opencode-orchestration
+npm install -g .
 ```
 
-O instalador simula por default. Ele nunca escreve sem `-Force`, e quando
-escreve faz backup do destino primeiro.
+O comando faz, em ordem:
 
-Passo a passo completo, incluindo variáveis de ambiente e dependências
-externas: [`docs/INSTALL.md`](docs/INSTALL.md).
+1. Instala as dependencias MCP declaradas em `dependencies` do `package.json`
+   (`@modelcontextprotocol/server-memory`, `server-sequential-thinking`).
+2. Dispara o `postinstall`, que executa `scripts/install.js`.
+3. `install.js` detecta `npm root -g`, `$USERPROFILE` e `$HOME`, e chama o
+   `Install-Orchestration.ps1 -Force`.
+4. O PowerShell renderiza o template `opencode.jsonc` com os paths locais,
+   instala MCPs npm faltantes, copia o payload para `~/.config/opencode` e
+   roda `Test-Orchestration.ps1`.
 
-## O que está aqui
+Para instalar **localmente** (sem `-g`):
 
-| Caminho | O que é |
+```bash
+npm install
+.\scripts\Install-Orchestration.ps1 -Force
+```
+
+Para apenas verificar:
+
+```bash
+npm run verify         # offline
+npm run verify:net     # com teste de API
+```
+
+Para simular sem escrever nada:
+
+```powershell
+.\scripts\Install-Orchestration.ps1
+```
+
+## O que o instalador faz em cada maquina
+
+| Etapa | Como |
 |---|---|
-| `payload/` | Cópia offline da configuração. É o que permite instalar sem rede e sem remoto. **Derivado** — não edite à mão |
-| `payload-symlinks.json` | Symlinks que a config espera. Não são copiados; são reportados como dependência |
-| `scripts/Install-Orchestration.ps1` | Instala o payload, restaura configs de projeto, verifica |
-| `scripts/Test-Orchestration.ps1` | Verificação independente, sai 1 em falha. Serve de gate em CI |
-| `scripts/Sync-Payload.ps1` | Regenera o payload a partir da config viva |
-| `docs/` | Instalação, arquitetura, medições e troubleshooting |
+| Detectar `npm root -g` | `npm root -g` quando nao vem em `ORCH_NPM_GLOBAL_NODE_MODULES` |
+| Detectar `$USERPROFILE` | env nativo do processo |
+| Detectar `~/.agents` | `$USERPROFILE/.agents` ou `$HOME/.agents` |
+| Instalar MCPs npm faltantes | `npm install -g <pkg>` por item em `scripts/mcp-packages.json` |
+| Clonar skills de sources externas | `git clone --depth 1` por item em `scripts/install-git-repos.json` |
+| Renderizar `opencode.jsonc` | substituicao de `{{nodeModules}}`, `{{userHome}}`, `{{userAgents}}` |
+| Renderizar symlinks | `payload-symlinks.template.json` -> `~/.config/opencode/skills/<name>` |
+| Copiar payload | de `payload/` para `~/.config/opencode/` (com backup antes) |
+| Verificar | `Test-Orchestration.ps1` (sai 1 em falha) |
 
-## Onde mora a verdade
+## O que esta aqui
 
-A configuração **viva** fica em `~/.config/opencode`, que é onde o opencode lê
-e que já é um repositório git próprio. É a fonte de verdade.
+| Caminho | O que e |
+|---|---|
+| `payload/opencode.jsonc` | Config global — providers, agentes, MCPs. TEMPLATE: placeholders `{{...}}` |
+| `payload-symlinks.template.json` | Lista os symlinks esperados com `targetTemplate` |
+| `payload/agents/*.yaml` | Quests globais com roteamento por estagio |
+| `payload/plugins/*.ts` | Plugin de quests e crg-plugin (artefatos achatados) |
+| `payload/skills/` | Skills globais carregadas pelo opencode |
+| `scripts/Install-Orchestration.ps1` | Instala: detecta paths, instala MCPs, renderiza templates, copia, verifica |
+| `scripts/Test-Orchestration.ps1` | Verificacao independente, sai 1 em falha. Serve de gate em CI |
+| `scripts/Sync-Payload.ps1` | Compara o payload contra o destino renderizado (`-Check` sai 1 em divergencia) |
+| `scripts/install.js` | Entry point do npm — detecta paths locais e chama PowerShell |
+| `scripts/setup.js` | Bin: `opencode-orchestration` ou `setup-orchestration` |
+| `scripts/mcp-packages.json` | Manifesto de pacotes npm que o instalador instala globalmente |
+| `scripts/install-git-repos.json` | Manifesto de repos git clonados na instalacao (skills de sources externas) |
+| `docs/` | Instalacao, arquitetura, medicoes e troubleshooting |
 
-O `payload/` deste repo é **derivado** dela por `Sync-Payload.ps1`, sempre na
-direção viva → payload. Editar o payload à mão é erro: o próximo sync
-sobrescreve. Para mudar a orquestração, edite a config viva, valide com
-`Test-Orchestration.ps1`, e só então sincronize.
+## Variaveis de template
 
-```powershell
-.\scripts\Sync-Payload.ps1 -Check   # há divergência? sai 1 se sim
-.\scripts\Sync-Payload.ps1          # sincroniza
+| Placeholder | Resolve para | Origem |
+|---|---|---|
+| `{{nodeModules}}` | Caminho global de `node_modules` | `npm root -g` |
+| `{{userHome}}` | Diretorio do usuario | `$env:USERPROFILE` ou `$env:HOME` |
+| `{{userAgents}}` | `~/.agents` | derivado de `{{userHome}}` |
+| `{{enabledProvidersList}}`, `{{modelDefault}}`, `{{smallModelDefault}}` | Providers/llm | `scripts/llm-defaults.json` ou override `config/llm-providers.json` |
+| `{{modelAgent<Slot>}}`, `{{tempAgent<Slot>}}`, `{{descAgent<Slot>}}` | Por slot de agente | mesma fonte |
+| `{{providersBlock}}` | Bloco JSON completo do `provider` | mesma fonte |
+
+LLMs/providers nao sao hardcoded: o default vem de `scripts/llm-defaults.json`
+e qualquer um pode copiar `scripts/llm-providers.example.json` para
+`config/llm-providers.json` (gitignored) e customizar. Trocar de MiniMax para
+Anthropic, adicionar GPT, mudar temperaturas por agente — tudo via esse arquivo.
+Ver [`docs/INSTALL.md`](docs/INSTALL.md) secao 8.
+
+Adicionar um placeholder novo: extensao em `scripts/Install-Orchestration.ps1:Resolve-Paths`
+ou `Resolve-LlmConfig` e uso direto no template.
+
+### Auto-descoberta de providers/models
+
+O instalador roda `opencode models --verbose` em diretorio vazio (para
+garantir que a config resolvida vem do `~/.config/opencode/opencode.jsonc`
+global) e descobre exatamente os models que o opencode local tem
+configurados. O resultado aparece no relatorio inicial da instalacao, e
+valida o `scripts/llm-defaults.json` ou `config/llm-providers.json` contra
+o que foi descoberto — models referenciados que nao foram descobertos viram
+warnings (credencial expirada? provider nao configurado?).
+
+Quando rodar `npm install -g .` em uma maquina nova **e** o shell for
+interativo (TTY) **e** ainda nao existir `config/llm-providers.json`, o
+instalador dispara o **wizard** (`scripts/wizard.js`):
+
+```
+$ npm install -g .
+[wizard] descobrindo models que o opencode tem configurados...
+[wizard] 3 model(s) de chat descoberto(s):
+  opencode/gpt-5             - GPT-5 (OpenCode Zen)
+  opencode/claude-sonnet-4-5 - Claude Sonnet 4.5 (OpenCode Zen)
+  opencode/o3-mini           - o3-mini (OpenCode Zen)
+
+  Slot: plan (planejamento, arquitetura e reproducao de defeito)
+  Models disponiveis:
+     1. opencode/gpt-5             GPT-5   [sem key]
+     2. opencode/claude-sonnet-4-5 Claude Sonnet 4.5 [sem key]
+     3. opencode/o3-mini           o3-mini [sem key]
+     0. (pular)
+  Escolha [1-3 ou 0] [default: 1]:
 ```
 
-O `-Check` existe para ser usado antes de commitar. Sem ele, o payload
-silenciosamente envelhece e a instalação numa máquina nova entrega uma
-configuração que não é a que você está usando.
+O usuario responde 9 vezes (6 slots + model default + small model + s/n para
+confirmar), e o wizard gera `config/llm-providers.json` com:
 
-A lista de arquivos do payload vem de `git ls-files` na config viva, não de uma
-lista mantida aqui. Assim as regras de ignore de lá — `node_modules`, manifests
-npm, estado de UI por máquina — valem automaticamente, sem serem
-reimplementadas e sem chance de divergirem.
+- `enabled_providers` derivado do que foi escolhido
+- Bloco `provider.<name>` com `npm`, `options.baseURL`, `options.apiKey`
+  apontando para o env var que `opencode providers list` reportou
+- Bloco `models.<id>` com `name`, `limit.context`, `limit.output` (do
+  `models.dev`)
+- Mapeamento dos 6 slots (plan/build/review/bugfix/general/explore) para
+  os models escolhidos
+
+A partir dai o instalador continua com `-Force` automaticamente. Funciona
+para qualquer maquina onde o opencode tenha **qualquer** provider configurado
+(OpenCode Zen, Anthropic, OpenRouter, Cloudflare, MiniMax, etc.).
+
+Para pular o wizard (instalacao silenciosa / CI): copie
+`scripts/llm-providers.example.json` para `config/llm-providers.json` antes
+de rodar `npm install`. Para rodar o wizard manualmente a qualquer hora:
+
+```bash
+node scripts/wizard.js --output config/llm-providers.json --force
+```
+
+Se o stdin nao for TTY (CI, `npm install -g`, redirecionamentos), o wizard
+nao roda — instalacao segue com defaults. Deliberado: a instalacao padrao
+tem que ser nao-interativa.
 
 ## Estado medido
 
 Verificado em 2026-08-18 por metadado de API (`providerID`/`modelID` por
-mensagem), não por autorrelato do modelo:
+mensagem), nao por autorrelato do modelo:
 
-- Roteamento por estágio acertou o modelo alvo em **5 de 5** rodadas.
+- Roteamento por estagio acertou o modelo alvo em **5 de 5** rodadas.
 - Contexto sobreviveu ao salto entre modelos em **5 de 5**.
-- O `model` do estágio sobrepõe o modelo declarado no agente.
+- O `model` do estagio sobrepoe o modelo declarado no agente.
 
-Método, sessões e os falsos negativos que o instrumento produzia antes de ser
+Metodo, sessoes e os falsos negativos que o instrumento produzia antes de ser
 corrigido: [`docs/MEASUREMENTS.md`](docs/MEASUREMENTS.md).
 
-Dois defeitos conhecidos e não corrigidos do plugin de quests — estado global
-ao processo e perda de estágio em headless — estão em
+Dois defeitos conhecidos e nao corrigidos do plugin de quests — estado global
+ao processo e perda de estagio em headless — estao em
 [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 
 ## Leitura
 
 | Documento | Quando |
 |---|---|
-| [`docs/INSTALL.md`](docs/INSTALL.md) | Instalar numa máquina nova |
+| [`docs/INSTALL.md`](docs/INSTALL.md) | Instalar / reinstalar / desinstalar |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Entender como o roteamento funciona antes de mexer |
-| [`docs/MEASUREMENTS.md`](docs/MEASUREMENTS.md) | Conferir a evidência em vez de acreditar |
-| [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Algo não roteou, ou um estágio não rodou |
+| [`docs/MEASUREMENTS.md`](docs/MEASUREMENTS.md) | Conferir a evidencia em vez de acreditar |
+| [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Algo nao roteou, ou um estagio nao rodou |

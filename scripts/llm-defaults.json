@@ -1,0 +1,88 @@
+{
+  "//": "Default LLM provider/agent configuration. Usado quando config/llm-providers.json nao existe. Customizavel por copia em config/llm-providers.json. Veja scripts/llm-providers.example.json para a documentacao.",
+  "enabled_providers": ["minimax-coding-plan", "deepseek", "ollama"],
+
+  "model": "minimax-coding-plan/MiniMax-M3",
+  "small_model": "deepseek/deepseek-v4-flash",
+
+  "agents": {
+    "plan": {
+      "model":       "deepseek/deepseek-v4-pro",
+      "temperature": 0.10,
+      "description": "Planejamento, arquitetura e reproducao de defeito via DeepSeek V4 Pro."
+    },
+    "build": {
+      "model":       "minimax-coding-plan/MiniMax-M3",
+      "temperature": 0.20,
+      "description": "Implementacao de codigo via MiniMax M3."
+    },
+    "review": {
+      "model":       "deepseek/deepseek-v4-flash",
+      "temperature": 0.10,
+      "description": "Revisao independente via DeepSeek V4 Flash."
+    },
+    "bugfix": {
+      "model":       "deepseek/deepseek-v4-pro",
+      "temperature": 0.15,
+      "description": "Diagnostico e correcao de bugs via DeepSeek V4 Pro."
+    },
+    "general": {
+      "model":       "deepseek/deepseek-v4-flash",
+      "temperature": 0.10,
+      "description": "Subagente de proposito geral. Modelo barato de proposito: delegacao e volumosa."
+    },
+    "explore": {
+      "model":       "deepseek/deepseek-v4-flash",
+      "temperature": 0.10,
+      "description": "Subagente de exploracao de codigo. Volume alto, julgamento baixo."
+    }
+  },
+
+  "providers": {
+    "minimax-coding-plan": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "https://api.minimax.io/v1",
+        "apiKey":  "{env:MINIMAX_API_KEY}"
+      },
+      "whitelist": ["MiniMax-M3"],
+      "models": {
+        "MiniMax-M3": {
+          "name":  "MiniMax M3",
+          "limit": { "context": 1000000, "output": 131072 }
+        }
+      }
+    },
+    "deepseek": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "https://api.deepseek.com",
+        "apiKey":  "{env:DEEPSEEK_API_KEY}"
+      },
+      "whitelist": ["deepseek-v4-flash", "deepseek-v4-pro"],
+      "models": {
+        "deepseek-v4-flash": {
+          "name":  "DeepSeek V4 Flash",
+          "limit": { "context": 1000000, "output": 384000 }
+        },
+        "deepseek-v4-pro": {
+          "name":  "DeepSeek V4 Pro",
+          "limit": { "context": 1000000, "output": 384000 }
+        }
+      }
+    },
+    "ollama": {
+      "//": "Embeddings locais para OpenCodeRAG. Porta 11434 verificada.",
+      "options": {
+        "baseURL": "http://localhost:11434/v1"
+      },
+      "whitelist": ["nomic-embed-text:latest"],
+      "models": {
+        "nomic-embed-text:latest": {
+          "name":  "nomic-embed-text:latest",
+          "limit": { "context": 32768, "output": 32768 }
+        }
+      }
+    }
+  }
+}

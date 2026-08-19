@@ -1,122 +1,120 @@
 {
   "$schema": "https://opencode.ai/config.json",
   // ─────────────────────────────────────────────────────────────────────────
-  // Configuracao GLOBAL do opencode — providers e agentes para TODOS os projetos.
+  // TEMPLATE — tres grupos de placeholders sao resolvidos na instalacao
+  // (scripts/Install-Orchestration.ps1):
   //
-  // Consolidada em 2026-08-18. Antes disto cada projeto declarava seus proprios
-  // providers e agentes, o que fazia `agent: plan` significar modelos diferentes
-  // em cada repo (deepseek-v4-pro no cloudpilot, 9router/smart no ameg,
-  // nvidia-nim/nemotron no cip) e quebrava quest com roteamento por estagio.
+  //   {{nodeModules}}, {{userHome}}, {{userAgents}}
+  //       Paths de maquina resolvidos via `npm root -g`, $env:USERPROFILE
+  //       e $HOME. Usados nos caminhos de MCPs npm.
   //
-  // Precedencia do opencode: user (este arquivo) < workspace (opencode.json do
-  // projeto). Projeto ainda pode sobrepor quando precisar.
+  //   {{...Model}}, {{...ModelDefault}}, {{enabledProvidersList}}, {{providersBlock}}
+  //       Configuracao de LLMs/providers. Fontes (em ordem de prioridade):
+  //         1. config/llm-providers.json (gitignored, override do usuario)
+  //         2. scripts/llm-defaults.json (default do orquestrador)
+  //       Para adicionar/trocar providers, copie
+  //       scripts/llm-defaults.json para config/llm-providers.json e edite.
+  //       Nenhuma string de provider/modelo fica hardcoded aqui.
   //
-  // O que NAO vem para ca, e por que:
-  //   mcp          → entradas com caminho absoluto por projeto (opencode-rag)
-  //   plugin       → caminho relativo ./.opencode/plugins/
-  //   lsp, skills  → dependem da arvore do projeto
+  //   {{opencodeProviderDescription(<slot>)}}
+  //       Texto descritivo por slot de agente. Hoje vem dos defaults; o
+  //       usuario pode sobrescrever via config/llm-providers.json em
+  //       agents.<slot>.description.
   // ─────────────────────────────────────────────────────────────────────────
 
-  "enabled_providers": [
-    "minimax-coding-plan",
-    "deepseek",
-    "ollama"
-  ],
+  "enabled_providers": {{enabledProvidersList}},
 
-  "model": "minimax-coding-plan/MiniMax-M3",
-  "small_model": "deepseek/deepseek-v4-flash",
+  "model": "{{modelDefault}}",
+  "small_model": "{{smallModelDefault}}",
 
   "agent": {
-    // Agentes primarios. plan e build sao slots NATIVOS do opencode — alternados
-    // com Tab no TUI. Sobrescrever aqui reconfigura os embutidos.
     "plan": {
-      "model": "deepseek/deepseek-v4-pro",
-      "temperature": 0.1,
-      "description": "Planejamento, arquitetura e reproducao de defeito via DeepSeek V4 Pro."
+      "model": "{{modelAgentPlan}}",
+      "temperature": {{tempAgentPlan}},
+      "description": "{{descAgentPlan}}"
     },
     "build": {
-      "model": "minimax-coding-plan/MiniMax-M3",
-      "temperature": 0.2,
-      "description": "Implementacao de codigo via MiniMax M3 (API direta)."
+      "model": "{{modelAgentBuild}}",
+      "temperature": {{tempAgentBuild}},
+      "description": "{{descAgentBuild}}"
     },
     "review": {
-      "model": "deepseek/deepseek-v4-flash",
-      "temperature": 0.1,
-      "description": "Revisao independente via DeepSeek V4 Flash — linhagem diferente do executor (MiniMax M3), reduz autoavaliacao."
+      "model": "{{modelAgentReview}}",
+      "temperature": {{tempAgentReview}},
+      "description": "{{descAgentReview}}"
     },
     "bugfix": {
-      "model": "deepseek/deepseek-v4-pro",
-      "temperature": 0.15,
-      "description": "Diagnostico e correcao de bugs via DeepSeek V4 Pro."
+      "model": "{{modelAgentBugfix}}",
+      "temperature": {{tempAgentBugfix}},
+      "description": "{{descAgentBugfix}}"
     },
-
-    // Slots de SUBAGENTE. Sem model declarado eles herdavam o default raiz, ou
-    // seja: toda delegacao (exploracao de codigo, research amplo) ia para o
-    // MiniMax M3. Este e o unico roteamento verdadeiramente automatico que
-    // existe aqui — o primario decide delegar, o slot decide o modelo.
-    // Para reverter ao comportamento anterior, remova os dois blocos abaixo.
     "general": {
-      "model": "deepseek/deepseek-v4-flash",
-      "description": "Subagente de proposito geral. Modelo barato de proposito: delegacao e volumosa."
+      "model": "{{modelAgentGeneral}}",
+      "temperature": {{tempAgentGeneral}},
+      "description": "{{descAgentGeneral}}"
     },
     "explore": {
-      "model": "deepseek/deepseek-v4-flash",
-      "description": "Subagente de exploracao de codigo. Volume alto, julgamento baixo."
+      "model": "{{modelAgentExplore}}",
+      "temperature": {{tempAgentExplore}},
+      "description": "{{descAgentExplore}}"
     }
   },
 
-  "provider": {
-    "minimax-coding-plan": {
-      "npm": "@ai-sdk/openai-compatible",
-      "options": {
-        "baseURL": "https://api.minimax.io/v1",
-        "apiKey": "{env:MINIMAX_API_KEY}"
-      },
-      "whitelist": ["MiniMax-M3"],
-      "models": {
-        "MiniMax-M3": {
-          "name": "MiniMax M3 (direto)",
-          "limit": {
-            "context": 1000000,
-            "output": 131072
-          }
-        }
-      }
+  "provider": {{providersBlock}},
+
+  "lsp": {
+    "typescript": {
+      "command": ["npx", "-y", "typescript-language-server", "--stdio"],
+      "extensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"]
     },
-    "deepseek": {
-      "npm": "@ai-sdk/openai-compatible",
-      "options": {
-        "baseURL": "https://api.deepseek.com",
-        "apiKey": "{env:DEEPSEEK_API_KEY}"
-      },
-      "whitelist": [
-        "deepseek-v4-flash",
-        "deepseek-v4-pro"
-      ],
-      "models": {
-        "deepseek-v4-flash": {
-          "name": "DeepSeek V4 Flash",
-          "limit": { "context": 1000000, "output": 384000 }
-        },
-        "deepseek-v4-pro": {
-          "name": "DeepSeek V4 Pro",
-          "limit": { "context": 1000000, "output": 384000 }
-        }
-      }
-    },
-    // Local, usado pelo opencode-rag para embeddings (nomic-embed-text).
-    // Porta 11434 verificada no ar em 2026-08-18.
-    "ollama": {
-      "options": {
-        "baseURL": "http://localhost:11434/v1"
-      },
-      "whitelist": ["nomic-embed-text:latest"],
-      "models": {
-        "nomic-embed-text:latest": {
-          "name": "nomic-embed-text:latest",
-          "limit": { "context": 32768, "output": 32768 }
-        }
-      }
+    "python": {
+      "command": ["uvx", "pyright-langserver", "--stdio"],
+      "extensions": [".py", ".pyi"]
     }
+  },
+
+  // MCPs dividem-se em tres grupos:
+  //   - binarios npm: instalados pelo pacote (veja scripts/mcp-packages.json).
+  //     Caminho resolvido via `npm root -g` no install.
+  //   - npx: rodados sob demanda. Sem state global. Nao precisam de install.
+  //   - binarios externos (uvx/CLI): exigem o binario no PATH,
+  //     declarado opcionalmente em Install-Orchestration.ps1.
+  // enabled:true significa "disponivel", nao "funcionando" - sem os devidos
+  // binarios ou env vars o servidor MCP sobe vazio ou falha na primeira chamada.
+  "mcp": {
+    "sequential-thinking": {
+      "type": "local",
+      "command": [
+        "node",
+        "{{nodeModules}}/@modelcontextprotocol/server-sequential-thinking/dist/index.js"
+      ],
+      "enabled": true,
+      "timeout": 60000
+    },
+    "memory": {
+      "type": "local",
+      "command": [
+        "node",
+        "{{nodeModules}}/@modelcontextprotocol/server-memory/dist/index.js"
+      ],
+      "enabled": true,
+      "timeout": 60000
+    },
+    "playwright": {
+      "type": "local",
+      "command": ["npx", "-y", "@playwright/mcp"],
+      "enabled": true
+    }
+  },
+
+  "plugin": [
+    "plugins/opencode-quests.ts",
+    "plugins/crg-plugin.ts"
+  ],
+
+  "skills": {
+    "paths": [
+      "skills/archify"
+    ]
   }
 }

@@ -27,8 +27,8 @@ estavam lá, cada repo redefinia o que `plan` e `build` significavam.
 `enabled_providers` merece atenção porque o comportamento não é intuitivo: é
 uma allowlist, e o projeto sobrepõe a global. Um provider definido globalmente
 mas fora do `enabled_providers` do projeto fica **definido e filtrado** — os
-modelos simplesmente não aparecem, sem erro. Era o caso do ameg, que não
-listava `deepseek` e portanto não via nenhum `deepseek/*`.
+modelos simplesmente não aparecem, sem erro. Em uma config de projeto que
+declare `enabled_providers` sem incluir `deepseek`, nenhum `deepseek/*` aparece.
 
 ## Os slots de agente
 
@@ -120,8 +120,9 @@ aquele texto como turno dele no mesmo contexto, não de compartilhar pesos.
 Trocar o modelo não desfaz a percepção. Revisão roteada seria autorrevisão com
 outros pesos.
 
-Por isso o estágio `handoff` do `finops-task` não tem rota, e a revisão fica
-externa, em sessão separada.
+Por isso a revisão roteada por estágio costuma ser omitida — o estágio de
+revisão fica externo, em sessão separada, em vez de compartilhada com o
+mesmo modelo que acabou de escrever.
 
 ## O plugin tem dois repositórios
 

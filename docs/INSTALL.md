@@ -1,118 +1,139 @@
-# Instalação
+# Instalacao
 
-Instalar a orquestração numa máquina nova. Funciona offline — o `payload/` é
-completo e não depende de rede nem de remoto git.
+Instalar a orquestracao multi-LLM numa maquina nova. O `payload/` e completo
+(nao precisa de rede nem de remoto git) e portatil (substitui placeholders com
+paths locais na instalacao).
 
-## 1. Pré-requisitos
+## 1. Pre-requisitos
 
-Obrigatórios. O instalador aborta se faltar algum:
+O instalador aborta cedo se faltar o obrigatorio.
 
-| Ferramenta | Para quê |
+| Ferramenta | Para que | Verificado por |
+|---|---|---|
+| `node` 18+ | Runtime do opencode e dos MCPs em Node | `node -v` |
+| `npm` 9+ | Instalacao global das deps MCP e deste pacote | `npm -v` |
+| `pwsh` (PowerShell 7+) | Instalador, verificador, syncer | `pwsh -v` |
+| `opencode` | Ferramenta que consome a config | `opencode --version` |
+| `git` | Tracking do que foi escrito, em CI | `git --version` |
+
+Opcionais, ausencia nao bloqueia a instalacao:
+
+| Ferramenta | O que perde sem ela |
 |---|---|
-| `opencode` | O que consome a configuração |
-| `node` | Runtime do plugin de quests e dos MCP em Node |
-| `git` | O `Sync-Payload.ps1` lê a lista de arquivos com `git ls-files` |
+| `uvx` | LSP `python` (`pyright-langserver`) |
 
-Opcionais. Ausência não bloqueia a instalação, mas MCP específicos deixam de
-subir:
+## 2. Variaveis de ambiente
 
-| Ferramenta | O que perde |
-|---|---|
-| `npm` | Desenvolvimento do plugin de quests |
-| `uvx` | MCP `code-review-graph` |
-| `docker` | MCP `github` em modo container (usado no cip) |
+O instalador **nao grava** variaveis de ambiente, de proposito: gravar por
+script faria a chave passar por linha de comando e por historico de shell. Ele
+checa presenca e reporta o que falta, sem nunca imprimir valor.
 
-## 2. Variáveis de ambiente
+Obrigatorias — sem elas o provider carrega mas falha na primeira chamada:
 
-O instalador **não grava** variáveis de ambiente, de propósito: gravar por
-script faria a chave passar por linha de comando e por histórico de shell. Ele
-checa presença e reporta o que falta, sem nunca imprimir valor.
-
-Obrigatórias — sem elas o provider carrega mas falha na primeira chamada:
-
-| Variável | Provider |
+| Variavel | Provider |
 |---|---|
 | `MINIMAX_API_KEY` | `minimax-coding-plan` (MiniMax M3) |
 | `DEEPSEEK_API_KEY` | `deepseek` (V4 Pro e V4 Flash) |
 
-Opcionais, usadas pelos MCP dos projetos:
+Opcionais, usadas pelos MCP (nenhuma no momento):
 
-| Variável | MCP |
-|---|---|
-| `CONTEXT7_API_KEY` | context7 |
-| `GITHUB_API_KEY` | github |
-| `JIRA_API_TOKEN` | jira |
-
-Persistir no escopo de usuário no Windows:
+Persistir no escopo de usuario no Windows:
 
 ```powershell
 [Environment]::SetEnvironmentVariable('MINIMAX_API_KEY',  '<valor>', 'User')
 [Environment]::SetEnvironmentVariable('DEEPSEEK_API_KEY', '<valor>', 'User')
 ```
 
-Abra um shell novo depois. Processos já rodando não veem variável definida
+Abra um shell novo depois. Processos ja rodando nao veem variavel definida
 depois de terem iniciado.
 
-## 3. Instalar
+## 3. Instalar via npm
 
-```powershell
-cd D:\opencode-orchestration
-.\scripts\Install-Orchestration.ps1
+```bash
+git clone <este-repo>
+cd opencode-orchestration
+npm install -g .
 ```
 
-Isso **simula**. Leia o relatório: ele mostra quantos arquivos seriam copiados,
-para onde, se o destino já existe e se faltam pré-requisitos ou variáveis.
+O `postinstall` deste pacote dispara `scripts/install.js`, que:
 
-Se o relatório estiver limpo:
+1. Detecta `npm root -g`, `$USERPROFILE` e `$HOME`.
+2. Repassa os caminhos como `ORCH_NPM_GLOBAL_NODE_MODULES`,
+   `ORCH_USER_HOME`, `ORCH_USER_AGENTS`.
+3. Chama `scripts/Install-Orchestration.ps1 -Force`.
+4. PowerShell: instala deps MCP faltantes, renderiza templates, faz backup
+   do destino existente, copia payload, tenta criar symlinks, valida com
+   `Test-Orchestration.ps1`.
 
-```powershell
+Instalar **local** (sem `-g`) tambem funciona:
+
+```bash
+npm install
 .\scripts\Install-Orchestration.ps1 -Force
 ```
 
-O que acontece nessa ordem:
+A diferenca e onde ficam as deps npm: em `-g` vao para o prefix global do
+npm (`%APPDATA%\npm\node_modules` ou `~/.npm-global`), em local vao para
+`node_modules/` deste repo. O resto do fluxo e identico.
 
-1. Se `~/.config/opencode` já existir, o conteúdo é copiado para
-   `_backup-<timestamp>/` dentro deste repo, **antes** de qualquer escrita.
-   `node_modules` fica de fora por volume.
-2. Os arquivos do payload são copiados para `~/.config/opencode`.
-3. Symlinks esperados são reportados, com indicação de se o alvo existe. Não
-   são criados — ver seção 5.
-4. Os `opencode.json` de projeto são restaurados nos projetos que existirem na
-   máquina.
-5. `Test-Orchestration.ps1` roda e reporta o resultado.
+## 4. Instalacao manual (sem npm)
 
-Instalar em outro destino, por exemplo para testar sem tocar na config em uso:
+Se preferir nao usar npm:
+
+```powershell
+cd D:\opencode-orchestration
+.\scripts\Install-Orchestration.ps1           # simula, nao escreve nada
+.\scripts\Install-Orchestration.ps1 -Force    # efetiva, com backup antes
+.\scripts\Test-Orchestration.ps1              # verifica ponta a ponta
+```
+
+O instalador detecta os caminhos locais nos mesmos lugares onde o `install.js`
+manda do lado dele, e cai nas mesmas variaveis `ORCH_*` quando elas estao
+definidas.
+
+### Sobrescrever caminhos detectados
+
+Se a deteccao automatica nao bater o que voce quer:
+
+```powershell
+$env:ORCH_NPM_GLOBAL_NODE_MODULES = 'C:\meu\node\node_modules'
+$env:ORCH_USER_HOME               = 'C:\Users\fulano'
+$env:ORCH_USER_AGENTS             = 'C:\Users\fulano\.agents'
+.\scripts\Install-Orchestration.ps1 -Force
+```
+
+O que o `ORCH_*` nao substitui e resolvido pelo caminho de deteccao do
+instalador.
+
+### Instalacao em outro destino
 
 ```powershell
 .\scripts\Install-Orchestration.ps1 -Force -TargetRoot D:\tmp\oc-teste
 ```
 
-Pular a restauração dos configs de projeto:
-
-```powershell
-.\scripts\Install-Orchestration.ps1 -Force -SkipProjectConfigs
-```
-
-## 4. Verificar
+## 5. Verificar
 
 ```powershell
 .\scripts\Test-Orchestration.ps1
 ```
 
-Sai com código 0 se tudo passar, 1 em qualquer falha obrigatória. O que ele
+Sai com codigo 0 se tudo passar, 1 em qualquer falha obrigatoria. O que ele
 checa:
 
-- `opencode.jsonc` existe e parseia.
+- `opencode.jsonc` existe e renderizou sem placeholders restantes (`{{...}}`
+  na saida indica install parcial).
 - Plugin de quests e quests globais presentes.
-- Variáveis de ambiente presentes (obrigatórias como falha, opcionais como
+- Variaveis de ambiente presentes (obrigatorias como falha, opcionais como
   aviso).
-- `opencode models` **rodado de um diretório vazio** — isso é o ponto: prova
-  que a resolução vem da config global e não de algum `opencode.json` de
-  projeto que estivesse no diretório atual.
+- Cada MCP declarado com `command: ["node", "<path>"]` aponta para binario
+  que existe no disco (erro se instalar sem `npm install -g` primeiro).
+- `opencode models` rodado de um diretorio vazio — isso e o ponto: prova que
+  a resolucao vem da config global e nao de algum `opencode.json` de projeto
+  que estivesse no diretorio atual.
 - O whitelist declarado na config corresponde exatamente aos modelos que o
-  opencode resolve, em ambas as direções.
-- Cada referência de modelo — `model`, `small_model`, `agent.*.model` e o
-  `model:` de cada estágio de quest — aponta para um modelo que existe.
+  opencode resolve, em ambas as direcoes.
+- Cada referencia de modelo — `model`, `small_model`, `agent.*.model` e o
+  `model:` de cada estagio de quest — aponta para um modelo que existe.
 - Chamada real de API ao DeepSeek e ao MiniMax.
 
 Sem rede:
@@ -121,53 +142,125 @@ Sem rede:
 .\scripts\Test-Orchestration.ps1 -SkipNetwork
 ```
 
-A checagem de referências de modelo merece uma nota. Ela existe porque o
+A checagem de referencias de modelo merecia uma nota. Ela existe porque o
 `small_model` global apontou para `deepseek-v4-flash-free`, um modelo que nunca
-existiu na API do DeepSeek. Referência inválida **não** falha ao carregar a
-config: falha na primeira chamada, em silêncio, e o slot afetado era o de maior
-frequência — título de sessão, sumarização, compaction.
+existiu na API do DeepSeek. Referencia invalida **nao** falha ao carregar a
+config: falha na primeira chamada, em silencio, e o slot afetado era o de maior
+frequencia — titulo de sessao, sumarizacao, compaction.
 
-## 5. Dependências que a instalação não resolve
+## 6. Adicionar um novo MCP (que precisa de binario npm)
 
-**Symlinks.** `payload-symlinks.json` lista os links que a configuração espera.
-Recriá-los no Windows exige Developer Mode ou shell elevado, o que não se pode
-assumir numa máquina nova, então o instalador reporta em vez de tentar. Hoje há
-um: `skills/archify` → `~/.agents/skills/archify`. Se o alvo não existir, a
-skill não carrega. Para criar:
+1. Adicione o pacote em **dois** lugares:
+   - `package.json` `dependencies` — para `npm install -g .` fazer o trabalho.
+   - `scripts/mcp-packages.json` — para o PowerShell checar/instalar no fluxo
+     direto (`Install-Orchestration.ps1 -Force` sem npm).
+2. Adicione a entrada `mcp.<nome>` em `payload/opencode.jsonc` com o caminho
+   `node {{nodeModules}}/<pkg>/...`.
+3. O instalador cuida do resto — `Install-Orchestration.ps1 -Force` vai
+     conferir, instalar o que faltar e re-renderizar o template.
 
-```powershell
-New-Item -ItemType SymbolicLink -Path "$env:USERPROFILE\.config\opencode\skills\archify" `
-         -Target "$env:USERPROFILE\.agents\skills\archify"
-```
+Se o MCP **nao** precisa de binario (e remoto, ou usa `npx`/`uvx`/`docker`),
+so editar `opencode.jsonc`.
+
+## 7. Adicionar uma skill de source externa (git)
+
+1. Adicione uma entrada em `scripts/install-git-repos.json`:
+   ```json
+   {
+     "url": "https://github.com/user/skill.git",
+     "ref": "main",
+     "target": "{{userAgents}}/skills/<name>",
+     "depth": 1,
+     "why": "Skill externa para..."
+   }
+   ```
+2. Apos clonar no diretorio alvo, crie ou aponte o symlink esperado em
+   `payload-symlinks.template.json` (se quiser o symlink na config global).
+3. `Install-Orchestration.ps1 -Force` faz o clone quando faltando. Repos ja
+   presentes nao sao sobrescritos — atualize com `git pull` na mao.
+
+## 8. Trocar providers de LLM (Claude, GPT, Gemini, etc.)
+
+LLM/providers nao sao hardcoded no template. O default (MiniMax + DeepSeek +
+Ollama) vem de `scripts/llm-defaults.json`. Para customizar:
+
+1. Copie o exemplo para a sua config:
+   ```powershell
+   Copy-Item scripts/llm-providers.example.json config/llm-providers.json
+   ```
+2. Edite `config/llm-providers.json`:
+   - `enabled_providers`: lista de provedores ativos
+   - `model` / `small_model`: defaults
+   - `agents.<slot>`: mapeamento slot -> modelo (plan, build, review, bugfix,
+     general, explore). Cada agente aceita `model`, `temperature`, `description`.
+   - `providers.<nome>`: bloco completo de cada provider (npm, options,
+     whitelist, models com limit)
+3. Defina `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / etc. como variavel de
+   ambiente (no escopo User, com `[Environment]::SetEnvironmentVariable`)
+4. Rode `.\scripts\Install-Orchestration.ps1 -Force`
+
+O arquivo de override **substitui** os defaults integralmente. Liste
+todos os providers que quer usar — se voce nao listar um, ele some da config
+renderizada. Esta e uma escolha deliberada: merge parcial leva a inconsistencias
+(o agente `plan` espera um modelo que o `provider` nao tem, e o resultado
+silencioso e um stage quebrado).
+
+O exemplo em `scripts/llm-providers.example.json` mostra Anthropic + MiniMax
++ Ollama. Ele e a fonte de verdade para o schema. `scripts/llm-defaults.json`
+tambem e fonte: se faltar um campo no seu override, copie de la.
+
+## 7. Dependencias que a instalacao nao resolve
+
+**Symlinks.** `payload-symlinks.template.json` lista os links que a configuracao
+espera. Recria-los no Windows exige Developer Mode ou shell elevado, o que nao se
+pode assumir numa maquina nova, entao o instalador tenta criar e reporta em vez
+de fingir que resolveu. Hoje ha um: `skills/archify` -> `~/.agents/skills/archify`.
 
 **Plugin de quests como fonte.** O payload traz `plugins/opencode-quests.ts`, o
 arquivo achatado que o opencode carrega — autocontido, suficiente para a
-orquestração funcionar. O diretório de fonte `plugins/opencode-quests/` **não**
-vem: é clone de um upstream de terceiro
+orquestracao funcionar. O diretorio de fonte `plugins/opencode-quests/` **nao**
+vem: e clone de um upstream de terceiro
 ([lirrensi/opencode-quests](https://github.com/lirrensi/opencode-quests)) com
-patches locais na branch `fork/stage-routing`. Só é necessário para desenvolver
-o plugin, não para usá-lo.
+patches locais na branch `fork/stage-routing`. So e necessario para desenvolver
+o plugin, nao para usa-lo.
 
-**Binários de MCP.** Os `opencode.json` de projeto referenciam caminhos
-absolutos de máquina, tipo `C:/nvm4w/nodejs/node_modules/...`. Numa máquina com
-layout diferente, esses caminhos precisam ser ajustados à mão depois do
-restore.
+**Skills locais.** Cada skill global em `payload/skills/` deve estar tambem em
+`~/.agents/skills/` para os symlinks resolverem. O instalador nao mexe em
+`~/.agents/`.
 
-## 6. Depois de instalar
+## 8. Depois de instalar
 
-Confirme que o roteamento por estágio chega ao modelo certo, em vez de
-confiar na configuração:
+Confirme que o roteamento por estagio chega ao modelo certo, em vez de
+confiar na configuracao:
 
-```powershell
+```bash
 opencode
 # no TUI:
 quest(file: "routing-probe")
 ```
 
-O probe roda dois estágios em modelos diferentes e o segundo repete um token
-que o primeiro inventou. Como conferir o modelo real por metadado de API, e não
+O probe roda dois estagios em modelos diferentes e o segundo repete um token
+que o primeiro inventou. Como conferir o modelo real por metadado de API, e nao
 pelo que o modelo diz de si: [`MEASUREMENTS.md`](MEASUREMENTS.md).
 
-Rode uma quest por vez. O estado da quest é global ao processo, não por sessão
-— duas concorrentes se dividem entre sessões. Detalhe em
+Rode uma quest por vez. O estado da quest e global ao processo, nao por sessao
+— duas concorrentes se dividem entre sessoes. Detalhe em
 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md).
+
+## 9. Desinstalar
+
+```bash
+npm uninstall -g opencode-orchestration
+```
+
+O npm remove as deps npm globais. O `~/.config/opencode` continua com a config
+que o instalador escreveu — para limpar manualmente, apague a pasta (ou use
+o backup em `<repo>/_backup-<timestamp>/` deste repo como comparacao).
+
+Para reinstalar do zero depois de desinstalar:
+
+```bash
+git clone <este-repo>
+cd opencode-orchestration
+npm install -g .
+```

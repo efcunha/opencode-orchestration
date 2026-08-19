@@ -1,149 +1,171 @@
 <#
 .SYNOPSIS
-    Copia a configuracao viva do opencode para payload/ neste repo.
+    Compara o payload deste repo com a copia instalada em TargetRoot.
 
 .DESCRIPTION
-    A configuracao viva em ~/.config/opencode e a fonte de verdade: e o que o
-    opencode le, e ela ja e um repositorio git proprio. Este repo e o
-    DISTRIBUIVEL — instalador, documentacao e uma copia offline que permite
-    instalar numa maquina limpa sem depender de remoto.
+    No design antigo isto sincronizava config viva -> payload. Agora o payload/
+    deste repo E a fonte de verdade (e um template). Sync-Payload.ps1 virou:
+    renderiza o template localmente, compara com o que ja esta no destino, e
+    reporta divergencias. Use -Check antes de commitar instalacao em massa.
 
-    A direcao e sempre viva -> payload. Nunca o contrario. Editar payload/ na
-    mao e erro: o proximo sync sobrescreve. Para mudar a configuracao, edite a
-    viva, valide, e sincronize.
+    Para usar:
+      .\Sync-Payload.ps1              # relata, nao escreve
+      .\Sync-Payload.ps1 -Check       # sai 1 se houver divergencia
+      .\Sync-Payload.ps1 -Force       # efetiva (na pratica: re-rodar Install -Force)
 
-    O conjunto de arquivos vem de `git ls-files` na config viva, nao de uma
-    lista mantida aqui. Assim o payload reflete exatamente o que esta
-    versionado la, e regras de ignore (node_modules, manifests npm, estado de
-    UI por maquina) valem automaticamente, sem serem reimplementadas.
+.PARAMETER TargetRoot
+    Configuracao ja instalada. Default: ~/.config/opencode.
 
-    Symlinks nao sao copiados como conteudo. Git os guarda como link e recria-los
-    no Windows exige Developer Mode ou elevacao, o que nao se pode assumir numa
-    maquina nova. Eles vao para payload-symlinks.json e o instalador os reporta
-    como dependencia externa em vez de fingir que resolveu.
-
-.PARAMETER LiveRoot
-    Raiz da config viva. Default: ~/.config/opencode.
+.PARAMETER Force
+    Alias para re-instalar. Como nada aqui escreve no payload, apenas
+    reporta que Install-Orchestration.ps1 -Force deve ser rodado.
 
 .PARAMETER Check
-    Nao escreve nada. Compara e sai com codigo 1 se houver divergencia.
-    Serve para CI ou para conferir antes de commitar.
+    Sai 1 se o que renderiza difere do destino. Use em CI.
 
 .EXAMPLE
-    .\Sync-Payload.ps1
     .\Sync-Payload.ps1 -Check
 #>
 [CmdletBinding()]
 param(
-    [string]$LiveRoot = (Join-Path $env:USERPROFILE '.config\opencode'),
+    [string]$TargetRoot = (Join-Path $env:USERPROFILE '.config\opencode'),
+    [switch]$Force,
     [switch]$Check
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$repoRoot     = Split-Path -Parent $PSScriptRoot
-$payloadRoot  = Join-Path $repoRoot 'payload'
-$linkManifest = Join-Path $repoRoot 'payload-symlinks.json'
+$repoRoot    = Split-Path -Parent $PSScriptRoot
+$payloadRoot = Join-Path $repoRoot 'payload'
 
-if (-not (Test-Path $LiveRoot)) {
-    throw "Config viva nao encontrada em: $LiveRoot"
-}
-if (-not (Test-Path (Join-Path $LiveRoot '.git'))) {
-    throw "Config viva nao e repositorio git: $LiveRoot — o conjunto de arquivos vem de 'git ls-files'."
+if (-not (Test-Path $payloadRoot)) {
+    throw "payload/ nao existe. Rode de dentro do repo."
 }
 
-Push-Location $LiveRoot
-try {
-    $tracked = @(git ls-files) | Where-Object { $_ }
-} finally {
-    Pop-Location
+$uh = $env:ORCH_USER_HOME
+if (-not $uh) { $uh = $env:USERPROFILE }
+$nm = $env:ORCH_NPM_GLOBAL_NODE_MODULES
+if (-not $nm) { $r = & npm root -g 2>$null; if ($LASTEXITCODE -eq 0) { $nm = $r.Trim() } }
+$ua = if ($uh) { Join-Path $uh '.agents' } else { '' }
+
+$vars = @{
+    nodeModules = $nm
+    userHome    = $uh
+    userAgents  = $ua
 }
 
-if ($tracked.Count -eq 0) {
-    throw "git ls-files nao retornou nada em $LiveRoot."
+function Resolve-Template {
+    param([string]$Text, [hashtable]$Vars)
+    $out = $Text
+    foreach ($k in $Vars.Keys) {
+        $v = [string]$Vars[$k]
+        $v = $v.Replace('\', '/')
+        $out = $out.Replace("{{$k}}", $v)
+    }
+    return $out
 }
 
-$copied  = 0
-$skipped = 0
-$drift   = @()
-$links   = @()
+function Resolve-LlmConfigLocal {
+    [CmdletBinding()]
+    param()
 
-foreach ($rel in $tracked) {
-    $srcPath = Join-Path $LiveRoot ($rel -replace '/', '\')
-    $dstPath = Join-Path $payloadRoot ($rel -replace '/', '\')
+    $defaults    = Join-Path $repoRoot 'scripts\llm-defaults.json'
+    $userOverride = Join-Path $repoRoot 'config\llm-providers.json'
+    $source = $null
+    if (Test-Path $userOverride) {
+        $source = Get-Content $userOverride -Raw | ConvertFrom-Json
+    } elseif (Test-Path $defaults) {
+        $source = Get-Content $defaults -Raw | ConvertFrom-Json
+    } else {
+        return @{}
+    }
 
-    if (-not (Test-Path $srcPath)) {
-        $drift += [pscustomobject]@{ Arquivo = $rel; Situacao = 'rastreado mas ausente na viva' }
+    $out = @{
+        modelDefault       = [string]$source.model
+        smallModelDefault  = [string]$source.small_model
+    }
+    $ep = @($source.enabled_providers)
+    $out.enabledProvidersList = '[' + (($ep | ForEach-Object { '"' + $_ + '"' }) -join ',') + ']'
+
+    foreach ($s in @('plan','build','review','bugfix','general','explore')) {
+        $a = $source.agents.PSObject.Properties | Where-Object { $_.Name -eq $s }
+        if (-not $a) { continue }
+        $cfg = $a.Value
+        $cap = (Get-Culture).TextInfo.ToTitleCase($s)
+        $out["modelAgent$cap"] = [string]$cfg.model
+        $out["tempAgent$cap"]  = [string]$cfg.temperature
+        $out["descAgent$cap"]  = [string]$cfg.description
+    }
+
+    $provHashtable = [ordered]@{}
+    foreach ($p in $source.providers.PSObject.Properties) {
+        $provHashtable[$p.Name] = $p.Value
+    }
+    $out.providersBlock = ($provHashtable | ConvertTo-Json -Depth 12 -Compress)
+    return $out
+}
+
+$llmVars = Resolve-LlmConfigLocal
+foreach ($kv in $llmVars.GetEnumerator()) { $vars[$kv.Key] = [string]$kv.Value }
+
+$drift = @()
+
+foreach ($srcFile in (Get-ChildItem $payloadRoot -Recurse -File -Force)) {
+    $rel = $srcFile.FullName.Substring($payloadRoot.Length).TrimStart('\')
+    $dstPath = Join-Path $TargetRoot $rel
+    $baseName = $srcFile.BaseName
+    $ext      = $srcFile.Extension
+
+    if (-not (Test-Path $dstPath)) {
+        $drift += [pscustomobject]@{ Arquivo = $rel; Situacao = 'ausente no destino' }
         continue
     }
 
-    $item = Get-Item $srcPath -Force
-    if ($item.LinkType) {
-        $links += [pscustomobject]@{ path = $rel; linkType = $item.LinkType; target = $item.Target }
-        $skipped++
-        continue
-    }
+    $srcText = Get-Content $srcFile.FullName -Raw -Encoding UTF8
+    $dstText = Get-Content $dstPath -Raw -Encoding UTF8
 
-    $srcHash = (Get-FileHash $srcPath -Algorithm SHA256).Hash
-    $dstHash = if (Test-Path $dstPath) { (Get-FileHash $dstPath -Algorithm SHA256).Hash } else { $null }
-
-    if ($srcHash -eq $dstHash) { continue }
-
-    if ($Check) {
-        $situacao = if ($null -eq $dstHash) { 'ausente no payload' } else { 'conteudo diferente' }
-        $drift += [pscustomobject]@{ Arquivo = $rel; Situacao = $situacao }
-        continue
-    }
-
-    $dstDir = Split-Path -Parent $dstPath
-    if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Path $dstDir -Force | Out-Null }
-    Copy-Item -Path $srcPath -Destination $dstPath -Force
-    $copied++
-}
-
-# Arquivos que sobraram no payload e nao existem mais na viva
-if (Test-Path $payloadRoot) {
-    $trackedSet = [System.Collections.Generic.HashSet[string]]::new(
-        [string[]]($tracked | ForEach-Object { ($_ -replace '/', '\') }),
-        [StringComparer]::OrdinalIgnoreCase
-    )
-    $orfaos = @()
-    foreach ($f in Get-ChildItem $payloadRoot -Recurse -File -Force) {
-        $rel = $f.FullName.Substring($payloadRoot.Length).TrimStart('\')
-        if (-not $trackedSet.Contains($rel)) { $orfaos += $rel }
-    }
-    foreach ($o in $orfaos) {
-        if ($Check) {
-            $drift += [pscustomobject]@{ Arquivo = $o; Situacao = 'orfao no payload (nao mais rastreado)' }
-        } else {
-            Remove-Item (Join-Path $payloadRoot $o) -Force
+    if ($baseName -in @('opencode') -and $ext -in @('.jsonc', '.json')) {
+        $expectedText = Resolve-Template -Text $srcText -Vars $vars
+        if ($expectedText -ne $dstText) {
+            $drift += [pscustomobject]@{ Arquivo = $rel; Situacao = 'conteudo do destino difere da renderizacao do template' }
+            continue
+        }
+    } else {
+        $srcHash = (Get-FileHash $srcFile.FullName -Algorithm SHA256).Hash
+        $dstHash = (Get-FileHash $dstPath       -Algorithm SHA256).Hash
+        if ($srcHash -ne $dstHash) {
+            $drift += [pscustomobject]@{ Arquivo = $rel; Situacao = 'hash difere' }
+            continue
         }
     }
 }
 
-if (-not $Check) {
-    $links | ConvertTo-Json -Depth 4 | Set-Content -Path $linkManifest -Encoding utf8
+if (-not (Test-Path $TargetRoot)) {
+    Write-Host "Destino $TargetRoot nao existe ainda - drift = todos os arquivos do payload estao ausentes." -ForegroundColor Yellow
 }
 
 Write-Host ''
-Write-Host "Config viva : $LiveRoot"
-Write-Host "Payload     : $payloadRoot"
-Write-Host "Rastreados  : $($tracked.Count)"
+Write-Host "Payload    : $payloadRoot"
+Write-Host "Destino    : $TargetRoot"
+Write-Host "Variaveis  : nodeModules=$nm userHome=$uh userAgents=$ua"
+Write-Host ''
+
+if ($drift.Count -eq 0) {
+    Write-Host 'Divergencia : nenhuma - payload em sincronia com o destino.' -ForegroundColor Green
+    if ($Check) { exit 0 }
+    exit 0
+}
+
+Write-Host "Divergencia : $($drift.Count) item(s)" -ForegroundColor Yellow
+$drift | Format-Table -AutoSize
 
 if ($Check) {
-    if ($drift.Count -eq 0) {
-        Write-Host 'Divergencia : nenhuma — payload em sincronia.' -ForegroundColor Green
-        exit 0
-    }
-    Write-Host "Divergencia : $($drift.Count) arquivo(s)" -ForegroundColor Yellow
-    $drift | Format-Table -AutoSize
-    Write-Host 'Rode sem -Check para sincronizar.' -ForegroundColor Yellow
+    Write-Host 'Rode Install-Orchestration.ps1 -Force para sincronizar.' -ForegroundColor Yellow
     exit 1
 }
 
-Write-Host "Copiados    : $copied"
-Write-Host "Symlinks    : $skipped (registrados em payload-symlinks.json, nao copiados)"
-if ($links.Count -gt 0) {
-    $links | Select-Object path, target | Format-Table -AutoSize
+if ($Force) {
+    Write-Host "Sync-Payload.ps1 -Force nao escreve no payload. Para sincronizar o destino, rode:" -ForegroundColor Yellow
+    Write-Host "  .\scripts\Install-Orchestration.ps1 -Force" -ForegroundColor Yellow
 }

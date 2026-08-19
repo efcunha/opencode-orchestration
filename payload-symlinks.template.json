@@ -1,0 +1,11 @@
+{
+  "//": "Symlinks que o payload espera. O target e resolvido na instalacao, em Install-Orchestration.ps1:Criar-Symlinks, a partir de $env:USERPROFILE ou $env:HOME. NUNCA hardcoded: links pessoais em outro usuario/maquina quebram.",
+  "//": "Cada entrada declara path (relativo ao TargetRoot de instalacao) e como descobrir o target. source nao e usado na instalacao automatica — o conteudo do symlink vem do proprio payload ou de ~/.agents/<skill>.",
+  "links": [
+    {
+      "path": "skills/archify",
+      "targetTemplate": "{{userAgents}}/skills/archify",
+      "fallback": "O symlink skills/archify requer a skill externa ~/.agents/skills/archify. Sem ela, a skill nao carrega (nao bloqueia a instalacao)."
+    }
+  ]
+}

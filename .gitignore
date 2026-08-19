@@ -1,7 +1,12 @@
 # ── Distribuivel da orquestracao opencode ─────────────────────────────────────
-# payload/ e DERIVADO da config viva por scripts/Sync-Payload.ps1, mas e
-# versionado de proposito: e ele que torna a instalacao possivel numa maquina
-# limpa, sem remoto e sem rede. Nao adicione payload/ aqui.
+# payload/ E a fonte de verdade: o instalador renderiza templates de la em
+# ~/.config/opencode na primeira execucao. Versionado de proposito: e ele
+# que torna a instalacao possivel numa maquina limpa, sem remoto e sem rede.
+
+# Overrides locais do usuario. O exemplo (.example.json) E versionado; o
+# efetivo (.json) nao. NUNCA comite um override com chaves de API.
+config/llm-providers.json
+config/*.local.json
 
 # Backups que o instalador cria antes de sobrescrever config existente.
 # Ancorado com "/" de proposito: sem a barra o padrao casa em qualquer nivel e

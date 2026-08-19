@@ -1,0 +1,49 @@
+{
+  "name": "opencode-orchestration",
+  "version": "1.0.0",
+  "private": false,
+  "description": "Multi-LLM orchestration for opencode: MiniMax M3 + DeepSeek V4 Pro/Flash, with auto-installed MCP servers. Installs as a global npm package.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "os": [
+    "win32",
+    "darwin",
+    "linux"
+  ],
+  "bin": {
+    "opencode-orchestration": "scripts/setup.js",
+    "setup-orchestration": "scripts/setup.js"
+  },
+  "main": "scripts/install.js",
+  "scripts": {
+    "install": "node scripts/install.js",
+    "postinstall": "node scripts/install.js --postinstall",
+    "uninstall": "node scripts/install.js --uninstall",
+    "verify": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/Test-Orchestration.ps1 -SkipNetwork",
+    "verify:net": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/Test-Orchestration.ps1",
+    "install:force": "node scripts/install.js --force",
+    "sync": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/Sync-Payload.ps1",
+    "sync:check": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/Sync-Payload.ps1 -Check"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server-memory": "*",
+    "@modelcontextprotocol/server-sequential-thinking": "*",
+    "opencode-rag-plugin": "*"
+  },
+  "keywords": [
+    "opencode",
+    "llm",
+    "orchestration",
+    "minimax",
+    "deepseek",
+    "mcp"
+  ],
+  "author": "Edson Fernandes Cunha",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anomalyco/opencode-orchestration.git"
+  }
+}

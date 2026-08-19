@@ -15,7 +15,7 @@
     A verificacao dos YAML de quest existe por causa de um defeito real: o
     small_model global apontou para "deepseek-v4-flash-free", um modelo que
     nunca existiu na API. Referencia de modelo invalida nao falha na carga da
-    config — falha na primeira chamada, em silencio. Conferir cada referencia
+    config - falha na primeira chamada, em silencio. Conferir cada referencia
     contra a lista resolvida pega isso antes de doer.
 
 .PARAMETER TargetRoot
@@ -54,8 +54,6 @@ function Test-Item {
 
 function ConvertFrom-Jsonc {
     param([string]$Text)
-    # Remove blocos /* */ e linhas que COMECAM com // — nao toca em "https://",
-    # que seria destruido se o corte fosse por ocorrencia de // em qualquer posicao.
     $noBlock = [regex]::Replace($Text, '/\*.*?\*/', '', 'Singleline')
     $lines   = $noBlock -split "`r?`n" | Where-Object { $_.TrimStart() -notmatch '^//' }
     return ($lines -join "`n") | ConvertFrom-Json
@@ -84,19 +82,63 @@ $questFiles = @()
 if (Test-Path $questDir) { $questFiles = @(Get-ChildItem $questDir -Filter *.yaml -File) }
 Test-Item 'quests globais presentes' ($questFiles.Count -gt 0) "$($questFiles.Count) arquivo(s)"
 
-# --- 2. Variaveis de ambiente ------------------------------------------------
+# --- 2. Variaveis de ambiente (dinamico, do manifesto ativo) ----------------
 Write-Host ''
-Write-Host 'Variaveis de ambiente (somente presenca)'
-foreach ($v in @('MINIMAX_API_KEY', 'DEEPSEEK_API_KEY')) {
-    Test-Item $v (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($v)))
-}
-foreach ($v in @('CONTEXT7_API_KEY', 'GITHUB_API_KEY', 'JIRA_API_TOKEN')) {
-    Test-Item "$v (opcional)" (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($v))) -Aviso
+Write-Host 'Variaveis de ambiente (somente presenca, derivado do manifesto LLM ativo)'
+
+$cfgRoot = Split-Path -Parent $PSScriptRoot
+$cfgDefaults = Join-Path $cfgRoot 'scripts\llm-defaults.json'
+$cfgOverride = Join-Path $cfgRoot 'config\llm-providers.json'
+$cfgUsed     = if     (Test-Path $cfgOverride) { $cfgOverride }
+               elseif (Test-Path $cfgDefaults) { $cfgDefaults }
+               else                              { $null }
+
+if (-not $cfgUsed) {
+    Test-Item 'manifesto de providers' $false "nem $cfgDefaults nem $cfgOverride existem"
+} else {
+    $cfg = Get-Content $cfgUsed -Raw | ConvertFrom-Json
+    $envsNeeded = @()
+    foreach ($p in $cfg.providers.PSObject.Properties) {
+        $opts = $p.Value.options
+        if ($opts -and ($opts.PSObject.Properties.Name -contains 'apiKey')) {
+            $k = [string]$opts.apiKey
+            if ($k -match '\{env:(\w+)\}') { $envsNeeded += [string]$Matches[1] }
+        }
+    }
+    foreach ($v in ($envsNeeded | Sort-Object -Unique)) {
+        Test-Item $v (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($v)))
+    }
+    if ($envsNeeded.Count -eq 0) {
+        Write-Host '  (nenhum provider ativo requer env var)' -ForegroundColor DarkGray
+    } else {
+        Write-Host "  fonte: $cfgUsed" -ForegroundColor DarkGray
+    }
 }
 
-# --- 3. Resolucao pelo opencode ----------------------------------------------
-# Rodar de um diretorio vazio e o ponto: prova que a resolucao vem da config
-# global, e nao de algum opencode.json de projeto.
+# --- 3. MCPs declarados ------------------------------------------------------
+Write-Host ''
+Write-Host 'MCPs declarados'
+if ($cfgJson -and $cfgJson.PSObject.Properties.Name -contains 'mcp') {
+    foreach ($m in $cfgJson.mcp.PSObject.Properties) {
+        $def = $m.Value
+        $type = $def.PSObject.Properties | Where-Object { $_.Name -eq 'type' }
+        $typeVal = if ($type) { $type.Value } else { 'local' }
+        if ($typeVal -eq 'local') {
+            $cmd = $def.PSObject.Properties | Where-Object { $_.Name -eq 'command' }
+            if ($cmd -and $cmd.Value.Count -ge 2 -and $cmd.Value[0] -eq 'node') {
+                $bin = $cmd.Value[1]
+                $exists = Test-Path $bin
+                Test-Item "mcp.$($m.Name) binario" $exists $bin
+            } else {
+                Test-Item "mcp.$($m.Name)" $true 'sem node <path> - usa wrapper externo' -Aviso
+            }
+        } else {
+            Test-Item "mcp.$($m.Name)" $true 'remoto' -Aviso
+        }
+    }
+}
+
+# --- 4. Resolucao pelo opencode ----------------------------------------------
 Write-Host ''
 Write-Host 'Resolucao (de um diretorio vazio)'
 $tmpDir = Join-Path ([IO.Path]::GetTempPath()) ('oc-verify-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
@@ -105,8 +147,8 @@ $modelos = @()
 $agentes = @()
 try {
     Push-Location $tmpDir
-    $modelos = @(& opencode models 2>&1) | Where-Object { $_ -match '^\S+/\S+$' }
-    $agentes = @(& opencode agent list 2>&1)
+    $modelos = @(@(& opencode models 2>&1) | Where-Object { $_ -match '^\S+/\S+$' })
+    $agentes = @(@(& opencode agent list 2>&1))
 } catch {
     Test-Item 'opencode responde' $false $_.Exception.Message
 } finally {
@@ -117,7 +159,6 @@ try {
 Test-Item 'opencode models retorna modelos' ($modelos.Count -gt 0) "$($modelos.Count) modelo(s)"
 foreach ($m in $modelos) { Write-Host "         $m" -ForegroundColor DarkGray }
 
-# Esperado derivado do whitelist da config, nao de lista fixa
 if ($cfgJson -and $cfgJson.PSObject.Properties.Name -contains 'provider') {
     $esperados = @()
     foreach ($p in $cfgJson.provider.PSObject.Properties) {
@@ -140,7 +181,7 @@ if ($cfgJson -and $cfgJson.PSObject.Properties.Name -contains 'agent') {
     Test-Item 'agentes declarados aparecem em agent list' ($ausentes.Count -eq 0) $det
 }
 
-# --- 4. Referencias de modelo ------------------------------------------------
+# --- 5. Referencias de modelo ------------------------------------------------
 Write-Host ''
 Write-Host 'Referencias de modelo'
 if ($cfgJson) {
@@ -156,14 +197,7 @@ if ($cfgJson) {
     }
 }
 
-# Estagios de quest. Regex em vez de parser YAML de proposito: nao ha dependencia
-# de YAML garantida numa maquina recem-instalada.
 foreach ($qf in $questFiles) {
-    # "model:" no inicio da linha aparece tambem em prosa dentro de blocos
-    # context/description. Depois de tirar pontuacao final, so vale o que tem a
-    # forma providerID/modelID; o resto e texto e nao declaracao. Campo model de
-    # estagio malformado nao escapa por aqui — a validacao de schema do proprio
-    # plugin rejeita na carga da quest.
     $refs = @(
         Select-String -Path $qf.FullName -Pattern '^\s*model:\s*(\S+)' -AllMatches |
         ForEach-Object { $_.Matches } |
@@ -175,29 +209,46 @@ foreach ($qf in $questFiles) {
     }
 }
 
-# --- 5. Conectividade --------------------------------------------------------
+# --- 6. Conectividade dos providers LLM (dinamico) --------------------------
 if (-not $SkipNetwork) {
     Write-Host ''
-    Write-Host 'Conectividade dos providers'
-    $alvos = @(
-        @{ Nome = 'DeepSeek'; Url = 'https://api.deepseek.com/chat/completions';  EnvVar = 'DEEPSEEK_API_KEY'; Modelo = 'deepseek-v4-flash' }
-        @{ Nome = 'MiniMax';  Url = 'https://api.minimax.io/v1/chat/completions'; EnvVar = 'MINIMAX_API_KEY';  Modelo = 'MiniMax-M3' }
-    )
-    foreach ($t in $alvos) {
-        $chave = [Environment]::GetEnvironmentVariable($t.EnvVar)
-        if ([string]::IsNullOrWhiteSpace($chave)) {
-            Test-Item "$($t.Nome) responde" $false "$($t.EnvVar) nao definida" -Aviso
-            continue
-        }
-        $body = @{ model = $t.Modelo; messages = @(@{ role = 'user'; content = 'ping' }); max_tokens = 4 } |
-                ConvertTo-Json -Depth 5 -Compress
-        try {
-            $r = Invoke-RestMethod -Uri $t.Url -Method Post -TimeoutSec 45 -Body $body `
-                 -Headers @{ Authorization = "Bearer $chave"; 'Content-Type' = 'application/json' }
-            Test-Item "$($t.Nome) responde" ($null -ne $r) "modelo retornado: $($r.model)"
-        } catch {
-            $det = if ($_.ErrorDetails.Message) { ($_.ErrorDetails.Message -replace '\s+', ' ') } else { $_.Exception.Message }
-            Test-Item "$($t.Nome) responde" $false $det
+    Write-Host 'Conectividade dos providers LLM (do manifesto ativo)'
+    if (-not $cfgUsed) {
+        Write-Host '  sem manifesto - pulado' -ForegroundColor DarkGray
+    } else {
+        $cfg = Get-Content $cfgUsed -Raw | ConvertFrom-Json
+        foreach ($p in $cfg.providers.PSObject.Properties) {
+            $opts = $p.Value.options
+            if (-not $opts) { continue }
+            $baseURL = if ($opts.PSObject.Properties.Name -contains 'baseURL') { [string]$opts.baseURL } else { '' }
+            $apiKey  = if ($opts.PSObject.Properties.Name -contains 'apiKey')  { [string]$opts.apiKey }  else { '' }
+            $modelo  = if ($p.Value.whitelist) { [string]$p.Value.whitelist[0] } else { '' }
+            $envVar  = ''
+            if ($apiKey -match '\{env:(\w+)\}') { $envVar = $Matches[1] }
+            if (-not $baseURL -or -not $modelo) {
+                Write-Host "    SKIP $($p.Name) (sem baseURL ou modelo whitelist)" -ForegroundColor DarkGray
+                continue
+            }
+            if ($modelo -match '(?i)embed') {
+                Write-Host "    SKIP $($p.Name) (modelo de embedding, nao chat - $modelo)" -ForegroundColor DarkGray
+                continue
+            }
+            if ($envVar -and [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($envVar))) {
+                Test-Item "$($p.Name) responde" $false "$envVar nao definida" -Aviso
+                continue
+            }
+            $headers = @{ 'Content-Type' = 'application/json' }
+            if ($envVar) { $headers.Authorization = "Bearer $(([Environment]::GetEnvironmentVariable($envVar)))" }
+            $url = "$($baseURL.TrimEnd('/'))/chat/completions"
+            $body = @{ model = $modelo; messages = @(@{ role = 'user'; content = 'ping' }); max_tokens = 4 } |
+                    ConvertTo-Json -Depth 5 -Compress
+            try {
+                $r = Invoke-RestMethod -Uri $url -Method Post -TimeoutSec 45 -Body $body -Headers $headers
+                Test-Item "$($p.Name) responde" ($null -ne $r) "modelo retornado: $($r.model)"
+            } catch {
+                $det = if ($_.ErrorDetails.Message) { ($_.ErrorDetails.Message -replace '\s+', ' ') } else { $_.Exception.Message }
+                Test-Item "$($p.Name) responde" $false $det
+            }
         }
     }
 }

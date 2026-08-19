@@ -1,0 +1,9 @@
+[
+  {
+    "url": "https://github.com/tt-a1i/archify.git",
+    "ref": "main",
+    "target": "{{userAgents}}/skills/archify",
+    "depth": 1,
+    "why": "Skill archify - diagramas arquitetura, workflow, sequence, data-flow e lifecycle. O opencode carrega via symlink em ~/.config/opencode/skills/archify -> ~/.agents/skills/archify."
+  }
+]

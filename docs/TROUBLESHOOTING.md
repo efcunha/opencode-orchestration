@@ -161,21 +161,50 @@ New-Item -ItemType SymbolicLink `
          -Target "$env:USERPROFILE\.agents\skills\archify"
 ```
 
-## Um MCP não sobe
+## Um MCP nao sobe
 
-Os `opencode.json` de projeto carregam caminhos absolutos de máquina, tipo
-`C:/nvm4w/nodejs/node_modules/...` e `C:\Users\<user>\.pencil\...`. Numa máquina
-com layout diferente, precisam ser ajustados à mão depois do restore — o
-instalador restaura o conteúdo, não reescreve caminhos.
+Quatro motivos, em ordem de probabilidade.
 
-Confira também os binários opcionais: `uvx` para `code-review-graph`, `docker`
-para o MCP `github` em modo container.
+**1. Binario npm nao instalado.** O config global aponta `{{nodeModules}}/<pkg>`,
+que o instalador resolve para o `npm root -g` local. Se voce sobrescreveu o
+caminho com `ORCH_NPM_GLOBAL_NODE_MODULES` e ele nao bate onde o npm realmente
+instalou as deps, o comando `node <path>` do MCP falha com ENOENT. Use
+`npm root -g` no mesmo shell onde o opencode vai rodar para confirmar.
+
+**2. Binario externo nao esta no PATH.** Quando um MCP usar `npx`, `uvx` ou
+binarios CLI proprios, eles precisam estar no PATH. `uvx` em particular e o
+que habilita o LSP Python via `pyright-langserver`.
+
+**3. Versao de pacote mudou.** O `opencode`/`mcp` que estamos roteando para
+um `node <path>/dist/index.js` assume uma estrutura de pasta que o pacote npm
+original entrega. Se um upgrade quebrar isso, o instalador vai conseguir
+passar o template mas o binario nao vai estar onde esperamos — compare
+`npm ls -g <pkg> <pkg>@<version>` com o que o `command` da config aponta.
+
+Para gerar um MCP novo ou atualizar um existente, veja a secao
+"Adicionar um novo MCP" em [`INSTALL.md`](INSTALL.md).
+
+## "Placeholder {{...}} nao foi resolvido"
+
+Sintoma: a config instalada em `~/.config/opencode/opencode.jsonc` ainda
+contem a string literal `{{nodeModules}}` ou similar.
+
+Causa: a deteccao local (em `Install-Orchestration.ps1:Resolve-Paths`) nao
+conseguiu `npm root -g` e nao havia `ORCH_NPM_GLOBAL_NODE_MODULES` definido.
+Sem caminho, nada substitui.
+
+Conferir:
+
+```powershell
+$env:ORCH_NPM_GLOBAL_NODE_MODULES = (npm root -g)
+.\scripts\Install-Orchestration.ps1 -Force
+```
 
 ## O que o verificador não cobre
 
 - **Quests de projeto.** Ele só valida as globais em
-  `~/.config/opencode/agents`. Um `.agents/finops-task.yaml` de projeto não é
-  verificado.
+  `~/.config/opencode/agents`. Quaisquer quests em `.agents/` de projeto
+  (locais ou externos) nao sao verificadas — o verificador so ve as globais.
 - **Alcançabilidade de MCP.** Presença de binário é checada; se o servidor sobe
   e responde, não.
 - **Roteamento de ponta a ponta.** Ele confere que as referências resolvem, não

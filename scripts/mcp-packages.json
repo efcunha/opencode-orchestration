@@ -1,0 +1,17 @@
+[
+  {
+    "name": "@modelcontextprotocol/server-memory",
+    "version": "latest",
+    "why": "MCP memory - graph store de notas persistente entre sessoes."
+  },
+  {
+    "name": "@modelcontextprotocol/server-sequential-thinking",
+    "version": "latest",
+    "why": "MCP sequential-thinking - planejamento multi-passos antes de agir."
+  },
+  {
+    "name": "opencode-rag-plugin",
+    "version": "latest",
+    "why": "OpenCodeRAG (MrDoe/OpenCodeRAG) - RAG semantico local-first sobre a arvore do projeto. Instalado globalmente; configurar por projeto com `opencode-rag init`."
+  }
+]
