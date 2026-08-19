@@ -268,3 +268,61 @@ $env:ORCH_NPM_GLOBAL_NODE_MODULES = (npm root -g)
 - **Roteamento de ponta a ponta.** Ele confere que as referências resolvem, não
   que um estágio realmente foi atendido pelo modelo alvo. Para isso, rode o
   `routing-probe` e leia o metadado — ver [`MEASUREMENTS.md`](MEASUREMENTS.md).
+
+## Quest iniciou mas o bloco Task está vazio
+
+Sintoma: a quest inicia e o primeiro estágio (geralmente `plan`) reporta um
+bloco "Task" vazio, ou produz um plano genérico sem endereçar o pedido do
+usuário.
+
+Causa: o parâmetro `input` não foi passado corretamente. Todos os parâmetros
+da tool `quest()` são **nomeados** — argumentos posicionais não são suportados.
+
+Errado:
+```
+quest(file: "model-routed-dev", "Crie uma página HTML de Boas Vindas")
+```
+
+Certo:
+```
+quest(file: "model-routed-dev", input: "Crie uma página HTML de Boas Vindas")
+```
+
+O plugin mostra um toast de dica quando `input` não é passado e um arquivo/nome
+de quest é especificado: `Tip: pass the task as input: "your task here" (named
+parameter)`.
+
+Mitigação embutida no `model-routed-dev.yaml`: a instrução do estágio plan
+inclui um fallback — "If that block is empty, read the user's original request
+from the conversation context." Funciona quando o usuário digitou um pedido no
+chat antes de chamar `quest()`, mas é pouco confiável se `quest()` foi a
+primeira mensagem da sessão. Use o parâmetro nomeado `input:`.
+
+## Estágio expirou por timeout
+
+Sintoma: toast diz `Stage "X" timed out (300s without quest_advance) —
+forcing quest completion`.
+
+Causa: o modelo produziu output mas nunca chamou `quest_advance` dentro do
+timeout configurado (default: 5 minutos). Isso pode acontecer quando:
+
+1. O modelo não entendeu a instrução e não chamou `quest_advance`.
+2. Um erro de API fez a resposta do modelo ser truncada antes da tool call.
+3. O TUI estava em Plan Mode e os retries do watchdog também se esgotaram
+   antes de o timeout disparar.
+
+Resolução: re-dispare a quest. Se persistir, verifique se o modelo suporta
+tool calling de forma confiável (alguns modelos descartam tool calls sob
+volume alto de output). Considere trocar o estágio afetado para um modelo
+mais capaz via campo `model:` no YAML.
+
+Para alterar o timeout por quest, adicione um campo top-level `timeout:`
+(segundos):
+
+```yaml
+kind: quest
+name: Minha Quest
+timeout: 600   # 10 minutos ao invés do default de 5
+stages:
+  - id: ...
+```

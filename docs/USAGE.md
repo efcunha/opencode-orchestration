@@ -19,6 +19,18 @@ quest(name: "Nome")      -> acha pelo campo `name:` (case-insensitive)
 quest(schema: {...})     -> cria inline a partir de um schema
 ```
 
+> **Importante:** Todos os parâmetros são nomeados. Argumentos posicionais
+> não são suportados. Para passar a tarefa do usuário para a quest, sempre
+> escreva `input: "..."` explicitamente:
+>
+> ```
+> quest(file: "model-routed-dev", input: "Crie uma página HTML de Boas Vindas")
+> ```
+>
+> Sem `input:`, o bloco Task mostrado a cada estágio fica vazio.
+> O estágio plan tem fallback (lê do contexto da conversa), mas
+> explícito é melhor.
+
 ### `quest()` — ajuda
 
 Digite `quest()` no chat e o plugin responde com o uso, os diretorios

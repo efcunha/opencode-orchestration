@@ -152,6 +152,12 @@ confirmar), e o wizard gera `config/llm-providers.json` com:
 - Mapeamento dos 6 slots (plan/build/review/bugfix/general/explore) para
   os models escolhidos
 
+O wizard configura **6 slots de agente** (plan, build, review, bugfix, general,
+explore). A quest `model-routed-dev` usa **3 deles** (plan, build, review).
+Os slots restantes servem outras quests, delegação para subagentes, e troca
+direta de agente no TUI. Atribuir o mesmo modelo a múltiplos slots é válido
+se você tem poucos providers — o orquestrador funciona independentemente.
+
 A partir dai o instalador continua com `-Force` automaticamente. Funciona
 para qualquer maquina onde o opencode tenha **qualquer** provider configurado
 (OpenCode Zen, Anthropic, OpenRouter, Cloudflare, MiniMax, etc.).
