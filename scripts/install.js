@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+'use strict';
 /*
  * install.js — entry point for `npm install`/`npm install -g` of this repo.
  *
@@ -23,8 +24,6 @@
 // files, not native exes — Node requires the shell wrapper on Win). The
 // warning is informational; we know.
 process.removeAllListeners('warning');
-
-'use strict';
 
 const { spawn, spawnSync } = require('node:child_process');
 const path = require('node:path');

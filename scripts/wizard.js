@@ -53,8 +53,19 @@ function preLoadStdin() {
 
 let _stdinLines = [];
 let _stdinCursor = 0;
+let _isTTY = false;
+let _rl = null;
 
 function readLine(prompt) {
+    if (_isTTY && _rl) {
+        // Modo interativo: usa readline para perguntar ao usuario
+        return new Promise((resolve) => {
+            _rl.question(prompt, (answer) => {
+                resolve(answer || '');
+            });
+        });
+    }
+    // Modo piped/redirected: consome linhas pre-carregadas
     process.stdout.write(prompt);
     if (_stdinCursor >= _stdinLines.length) {
         process.stderr.write('[wizard] stdin exhausted (EOF antes de ler todas as respostas). Saindo.\n');
@@ -154,8 +165,10 @@ async function main() {
     }
 
     if (process.stdin.isTTY) {
+        _isTTY = true;
         _stdinLines = [];
     } else {
+        _isTTY = false;
         _stdinLines = await preLoadStdin();
     }
 
@@ -188,7 +201,7 @@ async function main() {
         console.log(`  ${m.fullId} - ${m.name}${m.envVar ? ` (env: ${m.envVar})` : ''}`);
     });
 
-    const rl = readline.createInterface({
+    _rl = readline.createInterface({
         input:  process.stdin,
         output: process.stdout,
         terminal: process.stdin.isTTY === true,
@@ -242,7 +255,8 @@ async function main() {
         fs.writeFileSync(outputPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
         console.log(`[wizard] salvo em ${outputPath}`);
     } finally {
-        rl.close();
+        if (_rl) _rl.close();
+        _rl = null;
     }
 }
 

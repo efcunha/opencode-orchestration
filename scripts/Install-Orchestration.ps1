@@ -44,8 +44,7 @@
 [CmdletBinding()]
 param(
     [string]$TargetRoot = (Join-Path $env:USERPROFILE '.config\opencode'),
-    [switch]$Force,
-    [switch]$WhatIf
+    [switch]$Force
 )
 
 Set-StrictMode -Version Latest
@@ -83,8 +82,11 @@ function Resolve-Paths {
         if ($LASTEXITCODE -eq 0 -and $r) { $nm = $r.Trim() }
     }
     if (-not $nm) {
-        $fallback = Join-Path (Split-Path -Parent (Get-Command node -ErrorAction SilentlyContinue).Source -ErrorAction SilentlyContinue) 'node_modules'
-        if (Test-Path $fallback) { $nm = $fallback }
+        $nodeCmd = Get-Command node -ErrorAction SilentlyContinue
+        if ($nodeCmd -and $nodeCmd.Source) {
+            $fallback = Join-Path (Split-Path -Parent $nodeCmd.Source) 'node_modules'
+            if (Test-Path $fallback) { $nm = $fallback }
+        }
     }
 
     $uh = $env:ORCH_USER_HOME
@@ -608,7 +610,7 @@ if (-not (Test-Path $gitManifest)) {
     }
 }
 
-# --- 5. Destino --------------------------------------------------------------
+# --- 4. Destino --------------------------------------------------------------
 Write-Section 'Destino'
 $destinoExiste = Test-Path $TargetRoot
 Write-Host "  $TargetRoot"
@@ -655,7 +657,7 @@ if (-not $Force) {
     exit 0
 }
 
-# --- 6. Backup ---------------------------------------------------------------
+# --- 5. Backup ---------------------------------------------------------------
 if ($destinoExiste) {
     Write-Section 'Backup do destino'
     $stamp  = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -667,7 +669,7 @@ if ($destinoExiste) {
     Write-Host "  $backup"
 }
 
-# --- 7. Copia com renderizacao de templates ----------------------------------
+# --- 6. Copia com renderizacao de templates ----------------------------------
 Write-Section 'Instalando (com templates)'
 if (-not (Test-Path $TargetRoot)) { New-Item -ItemType Directory -Path $TargetRoot -Force | Out-Null }
 $copiados = 0
@@ -694,7 +696,34 @@ foreach ($f in $payloadFiles) {
 }
 Write-Host "  $copiados arquivo(s) copiado(s), $renderizados com template renderizado"
 
-# --- 8. Symlinks esperados ---------------------------------------------------
+# --- 6.1 Validacao pos-renderizacao do JSONC ----------------------------------
+$renderedJsoncPath = Join-Path $TargetRoot 'opencode.jsonc'
+if (Test-Path $renderedJsoncPath) {
+    try {
+        $raw = Get-Content $renderedJsoncPath -Raw -Encoding UTF8
+        # Strip JSONC comments for validation
+        $noBlock = [regex]::Replace($raw, '/\*.*?\*/', '', 'Singleline')
+        $lines   = $noBlock -split "`r?`n" | Where-Object { $_.TrimStart() -notmatch '^//' }
+        $clean   = $lines -join "`n"
+        $null = $clean | ConvertFrom-Json
+        Write-Host "  opencode.jsonc renderizado e JSON valido" -ForegroundColor Green
+        # Verificar se restam placeholders nao resolvidos
+        $unresolvedMatches = [regex]::Matches($raw, '\{\{(\w+)\}\}')
+        if ($unresolvedMatches.Count -gt 0) {
+            $unresolvedNames = ($unresolvedMatches | ForEach-Object { $_.Groups[1].Value }) | Sort-Object -Unique
+            Write-Host "  AVISO: placeholders nao resolvidos no JSONC: $($unresolvedNames -join ', ')" -ForegroundColor Yellow
+            Write-Host "  O arquivo foi gravado mas pode nao funcionar. Verifique os valores em Resolve-LlmConfig ou Resolve-Paths." -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "  ERRO: opencode.jsonc renderizado NAO e JSON valido!" -ForegroundColor Red
+        Write-Host "  Detalhe: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "  O arquivo foi gravado mas o opencode nao vai conseguir carrega-lo." -ForegroundColor Red
+        Write-Host "  Verifique o template em payload/opencode.jsonc e o conteudo de providersBlock." -ForegroundColor Red
+        $falhas += 'opencode.jsonc renderizado invalido (JSON parse falhou)'
+    }
+}
+
+# --- 7. Symlinks esperados ---------------------------------------------------
 if (Test-Path $symlinkTmpl) {
     $linksData = Get-Content $symlinkTmpl -Raw | ConvertFrom-Json
     if ($linksData.links) {
@@ -723,7 +752,7 @@ if (Test-Path $symlinkTmpl) {
     }
 }
 
-# --- 9. Verificacao ----------------------------------------------------------
+# --- 8. Verificacao ----------------------------------------------------------
 Write-Section 'Verificacao'
 $testScript = Join-Path $PSScriptRoot 'Test-Orchestration.ps1'
 if (Test-Path $testScript) {

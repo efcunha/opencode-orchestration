@@ -130,7 +130,7 @@ function discover(cwd) {
         envByProvider = parseProvidersList(p.stdout);
     }
 
-    const models = rawModels.map((m) => aggregate(m, envByProvider[m.providerID]));
+    const models = rawModels.map((mdl) => aggregate(mdl, envByProvider[mdl.providerID]));
     return { ok: true, models, envByProvider, raw: { models: rawModels, providers: p.stdout } };
 }
 

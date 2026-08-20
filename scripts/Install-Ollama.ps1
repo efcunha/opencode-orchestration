@@ -194,6 +194,7 @@ if (Test-OllamaInPath) {
     # 2. Instalar Ollama silenciosamente
     Write-Step "Instalando Ollama via script oficial do ollama.com..."
     Write-Step "(Fonte: https://ollama.com/install.ps1)"
+    Write-Step "NOTA: O script e baixado e executado diretamente. Verifique a URL se suspeitar de comprometimento."
 
     try {
         # O script oficial do Ollama para Windows:
@@ -201,6 +202,9 @@ if (Test-OllamaInPath) {
         # - Executa com /VERYSILENT /NORESTART /SP-
         # - Adiciona ollama ao PATH do usuario
         $installScript = Invoke-RestMethod -Uri 'https://ollama.com/install.ps1' -TimeoutSec 30
+        if ([string]::IsNullOrWhiteSpace($installScript) -or $installScript.Length -lt 100) {
+            throw "Script baixado vazio ou muito curto ($($installScript.Length) chars) — possivel problema de rede"
+        }
         # Executar o script baixado
         $scriptBlock = [scriptblock]::Create($installScript)
         & $scriptBlock
@@ -217,6 +221,16 @@ if (Test-OllamaInPath) {
             
             Write-Step "Baixando $setupUrl..."
             Invoke-WebRequest -Uri $setupUrl -OutFile $setupPath -TimeoutSec 300 -UseBasicParsing
+            
+            # Validacao de tamanho minimo: OllamaSetup.exe e ~80+ MB.
+            # Se o arquivo for muito pequeno, pode ser uma pagina de erro HTML.
+            $fileSize = (Get-Item $setupPath).Length
+            $minSizeMB = 30
+            if ($fileSize -lt ($minSizeMB * 1MB)) {
+                Remove-Item $setupPath -Force -ErrorAction SilentlyContinue
+                throw "Arquivo baixado muito pequeno ($([math]::Round($fileSize / 1MB, 1)) MB, esperado >$minSizeMB MB) — possivel erro de download ou redirect"
+            }
+            Write-Step "Download completo: $([math]::Round($fileSize / 1MB, 1)) MB"
             
             Write-Step "Executando instalacao silenciosa..."
             $proc = Start-Process -FilePath $setupPath -ArgumentList '/VERYSILENT', '/NORESTART', '/SP-' `

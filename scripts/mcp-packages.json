@@ -1,12 +1,12 @@
 [
   {
     "name": "@modelcontextprotocol/server-memory",
-    "version": "latest",
+    "version": "2025.8.4",
     "why": "MCP memory - graph store de notas persistente entre sessoes."
   },
   {
     "name": "@modelcontextprotocol/server-sequential-thinking",
-    "version": "latest",
+    "version": "2025.7.1",
     "why": "MCP sequential-thinking - planejamento multi-passos antes de agir."
   }
 ]
