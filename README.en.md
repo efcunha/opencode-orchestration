@@ -30,7 +30,7 @@ The command does, in order:
 1. Installs the MCP dependencies declared in `dependencies` of `package.json`
    (`@modelcontextprotocol/server-memory`, `server-sequential-thinking`) and
    the `optionalDependencies` (today: `opencode-rag-plugin`, a local-first
-   semantic RAG tool the user activates per project with `opencode-rag init`).
+   semantic RAG tool — Ollama + `nomic-embed-text` are auto-installed).
 2. Triggers `postinstall`, which runs `scripts/install.js`.
 3. `install.js` detects `npm root -g`, `$USERPROFILE` and `$HOME`, and calls
    `Install-Orchestration.ps1 -Force`.
@@ -67,6 +67,7 @@ To simulate without writing anything:
 | Detect `~/.agents` | `$USERPROFILE/.agents` or `$HOME/.agents` |
 | Install missing MCP npm packages | `npm install -g <pkg>` per item in `scripts/mcp-packages.json` |
 | Clone skills from external sources | `git clone --depth 1` per item in `scripts/install-git-repos.json` |
+| Install Ollama + embedding model | Auto-installs Ollama if missing, pulls `nomic-embed-text:latest` (non-blocking) |
 | Render `opencode.jsonc` | substitution of `{{nodeModules}}`, `{{userHome}}`, `{{userAgents}}` (and LLM placeholders) |
 | Render symlinks | `payload-symlinks.template.json` -> `~/.config/opencode/skills/<name>` |
 | Copy payload | from `payload/` to `~/.config/opencode/` (with backup first) |
@@ -83,6 +84,7 @@ To simulate without writing anything:
 | `payload/skills/` | Global skills loaded by opencode (`archify`, `find-skills`, `form-browser-validation`, `igniter`, `language`, `post-change-validation`, `trash`) |
 | `payload/mcp-docs/` | Documentation on how to invoke MCP servers via `mavis mcp call` (reference, not loaded as a skill) |
 | `scripts/Install-Orchestration.ps1` | Installs: detects paths, installs MCPs, renders templates, copies, verifies |
+| `scripts/Install-Ollama.ps1` | Silently installs Ollama, pulls `nomic-embed-text:latest`, validates embedding |
 | `scripts/Test-Orchestration.ps1` | Independent verification, exits 1 on failure. Works as a CI gate |
 | `scripts/Sync-Payload.ps1` | Compares the payload against the rendered destination (`-Check` exits 1 on drift) |
 | `scripts/install.js` | npm entry point — detects local paths and calls PowerShell |

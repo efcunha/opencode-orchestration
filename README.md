@@ -29,7 +29,7 @@ O comando faz, em ordem:
 1. Instala as dependencias MCP declaradas em `dependencies` do `package.json`
    (`@modelcontextprotocol/server-memory`, `server-sequential-thinking`) e as
    `optionalDependencies` (hoje: `opencode-rag-plugin`, RAG semantico
-   local-first que o usuario ativa por projeto com `opencode-rag init`).
+   local-first — Ollama + `nomic-embed-text` sao auto-instalados).
 2. Dispara o `postinstall`, que executa `scripts/install.js`.
 3. `install.js` detecta `npm root -g`, `$USERPROFILE` e `$HOME`, e chama o
    `Install-Orchestration.ps1 -Force`.
@@ -66,6 +66,7 @@ Para simular sem escrever nada:
 | Detectar `~/.agents` | `$USERPROFILE/.agents` ou `$HOME/.agents` |
 | Instalar MCPs npm faltantes | `npm install -g <pkg>` por item em `scripts/mcp-packages.json` |
 | Clonar skills de sources externas | `git clone --depth 1` por item em `scripts/install-git-repos.json` |
+| Instalar Ollama + modelo embedding | Auto-instala Ollama se ausente, puxa `nomic-embed-text:latest` (non-blocking) |
 | Renderizar `opencode.jsonc` | substituicao de `{{nodeModules}}`, `{{userHome}}`, `{{userAgents}}` |
 | Renderizar symlinks | `payload-symlinks.template.json` -> `~/.config/opencode/skills/<name>` |
 | Copiar payload | de `payload/` para `~/.config/opencode/` (com backup antes) |
@@ -82,6 +83,7 @@ Para simular sem escrever nada:
 | `payload/skills/` | Skills globais carregadas pelo opencode (`archify`, `find-skills`, `form-browser-validation`, `igniter`, `language`, `post-change-validation`, `trash`) |
 | `payload/mcp-docs/` | Documentacao de como invocar MCP servers via `mavis mcp call` (referencia, nao e carregada como skill) |
 | `scripts/Install-Orchestration.ps1` | Instala: detecta paths, instala MCPs, renderiza templates, copia, verifica |
+| `scripts/Install-Ollama.ps1` | Instala Ollama silenciosamente, puxa `nomic-embed-text:latest`, valida embedding |
 | `scripts/Test-Orchestration.ps1` | Verificacao independente, sai 1 em falha. Serve de gate em CI |
 | `scripts/Sync-Payload.ps1` | Compara o payload contra o destino renderizado (`-Check` sai 1 em divergencia) |
 | `scripts/install.js` | Entry point do npm — detecta paths locais e chama PowerShell |
