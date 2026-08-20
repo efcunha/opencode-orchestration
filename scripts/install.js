@@ -16,7 +16,7 @@
  * `npm install -g .` numa maquina sem opencode Powershell utilizavel sem efeito.
  *
  * Em modo `--force` ou sem flag, chama `Install-Orchestration.ps1 -Force`
- * (que ainda respeita -WhatIf do PowerShell se ORCHESTRATION_DRY_RUN=1).
+ * (sem -Force o script apenas simula, sem escrever nada).
  */
 
 // Silence Node 22+ deprecation warnings raised by spawnSync(.cmd, shell:true)
