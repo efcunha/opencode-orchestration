@@ -1,53 +1,136 @@
 kind: quest
 name: Model Routed Dev
-description: "Plan -> Build -> Review the user's request across three agent slots; each stage is served by that slot's configured model"
+description: "Preflight -> Plan -> Build -> Evidence -> Review -> Handoff across routed agent slots, with Bugfix recovery"
 context: >
   The user's request is delivered in the "Task" block above the instruction.
-  Each stage runs on a different agent slot (plan, build, review), so it is
-  served by that slot's configured model automatically. Advance between
-  stages by calling quest_advance with the id shown under "Next".
+  Each stage runs on its declared agent and model. The normal path is
+  preflight -> plan -> build -> evidence -> review -> handoff. Review can route
+  defects through bugfix and back to evidence. Advance only by calling
+  quest_advance with an allowed target.
 stages:
+  - id: preflight
+    description: "Stage 0 - validate scope and execution preconditions (plan slot)"
+    agent: plan
+    model: deepseek/deepseek-v4-pro
+    instruction: |
+      Read the user's request in the "Task" block and perform preflight only.
+      Confirm scope, relevant files, repository safety constraints, and whether
+      implementation can proceed. Do not edit files in this stage.
+      If preflight passes, call quest_advance("plan"). If a blocking condition
+      prevents safe execution, report it and call quest_advance("handoff").
+    checklist:
+      - "Scope and safety constraints checked"
+      - "No code or file edits produced"
+      - "quest_advance(\"plan\") or quest_advance(\"handoff\") called"
+    next:
+      proceed: plan
+      blocked: handoff
+
   - id: plan
     description: "Stage 1 - plan the request (plan slot)"
     agent: plan
+    model: deepseek/deepseek-v4-pro
     instruction: |
-      The user's request is in the "Task" block of this message. If that block
-      is empty, read the user's original request from the conversation context.
-      Produce ONLY a short plan:
+      Read the user's request in the "Task" block and produce ONLY a short
+      implementation plan:
         - Goal (1 sentence)
         - Files to add or modify (paths)
         - Public API change (if any)
-        - Test cases (3-5 bullets)
-      Do NOT write code or edit any file.
-      When done, call quest_advance("build").
+        - Validation and test cases (3-5 bullets)
+      Do not write code or edit files. If the plan needs correction, call
+      quest_advance("plan"). If implementation is ready, call
+      quest_advance("build"). If no implementation changes are required,
+      call quest_advance("evidence").
     checklist:
       - "Plan emitted in the requested format"
       - "No code or file edits produced"
-      - "quest_advance(\"build\") called"
-    next: build
+      - "Allowed quest_advance call made"
+    next:
+      implement: build
+      revise: plan
+      no_changes: evidence
 
   - id: build
     description: "Stage 2 - implement the plan (build slot)"
     agent: build
+    model: minimax-coding-plan/MiniMax-M3
     instruction: |
-      Read the plan from the previous stage and the user's request in the
-      "Task" block. Implement the change exactly as planned using the
-      write/edit tools. When done, list the files you changed and call
+      Read the preflight, plan, and user's request in the "Task" block.
+      Implement the approved change exactly within scope using write/edit tools.
+      Do not change unrelated files, credentials, or infrastructure. When
+      implementation is complete, summarize changed files and call
+      quest_advance("evidence"). If the plan is invalid or requires revision,
+      stop editing and call quest_advance("plan").
+    checklist:
+      - "Implementation matches the approved plan"
+      - "Only in-scope files were changed"
+      - "Allowed quest_advance call made"
+    next:
+      evidence: evidence
+      revise: plan
+
+  - id: evidence
+    description: "Stage 3 - validate implementation and collect evidence (build slot)"
+    agent: build
+    model: minimax-coding-plan/MiniMax-M3
+    instruction: |
+      Validate the implementation against the user's request and plan. Run
+      relevant checks, inspect the diff, and report concrete evidence. Do not
+      introduce unrelated changes. When evidence is complete, call
       quest_advance("review").
     checklist:
-      - "Files from the plan were touched"
-      - "quest_advance(\"review\") called"
-    next: review
+      - "Relevant validation checks executed"
+      - "Diff and scope reviewed"
+      - "Allowed quest_advance call made"
+    next:
+      review: review
 
   - id: review
-    description: "Stage 3 - review against plan and request (review slot)"
+    description: "Stage 4 - independent review against request and evidence (review slot)"
     agent: review
+    model: deepseek/deepseek-v4-flash
     instruction: |
-      Compare the implementation against the plan and the user's request in
-      the "Task" block. Report divergences, defects, and anything missing.
-      If everything is correct, call quest_advance("done"). If problems were
-      found, describe them, then still call quest_advance("done") so the quest
-      completes and the user can decide the next step.
+      Review the implementation, plan, evidence, and user's request in the
+      "Task" block. Report defects, missing requirements, scope violations,
+      and validation gaps. Do not silently accept failures. If review passes,
+      call quest_advance("handoff"). If a correctable defect exists, describe
+      it precisely and call quest_advance("bugfix").
     checklist:
-      - "Divergences and defects reported"
+      - "Implementation reviewed against requirements"
+      - "Defects and gaps reported explicitly"
+      - "quest_advance(\"handoff\") or quest_advance(\"bugfix\") called"
+    next:
+      approved: handoff
+      fix: bugfix
+
+  - id: bugfix
+    description: "Stage 5 - correct review findings (bugfix slot)"
+    agent: bugfix
+    model: deepseek/deepseek-v4-pro
+    instruction: |
+      Read the review findings, plan, evidence, and user's request. Correct
+      only confirmed in-scope defects using write/edit tools. Summarize every
+      changed file. If corrections are complete, call quest_advance("evidence")
+      for revalidation. If the finding cannot be safely corrected in scope,
+      document the blocker and call quest_advance("handoff").
+    checklist:
+      - "Confirmed review findings addressed or blocker documented"
+      - "Only in-scope files were changed"
+      - "quest_advance(\"evidence\") or quest_advance(\"handoff\") called"
+    next:
+      recheck: evidence
+      blocked: handoff
+
+  - id: handoff
+    description: "Stage 6 - summarize outcome and finish the quest"
+    agent: review
+    model: deepseek/deepseek-v4-flash
+    instruction: |
+      Prepare the final handoff from the completed workflow. Summarize the
+      request, stages completed, files changed, validation evidence, remaining
+      risks, and any blockers. Do not edit files. When the handoff is complete,
+      call quest_advance("done").
+    checklist:
+      - "Final outcome and validation evidence summarized"
+      - "Remaining risks or blockers stated"
       - "quest_advance(\"done\") called"
