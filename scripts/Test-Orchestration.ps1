@@ -375,6 +375,55 @@ if (-not $ollamaCmd) {
     }
 }
 
+# --- 8. Browser Harness (controle de browser via CDP) -------------------------
+Write-Host ''
+$bhLabel = if ($Language -eq 'en') { 'Browser Harness (browser control via CDP)' } else { 'Browser Harness (controle de browser via CDP)' }
+Write-Host $bhLabel
+
+$uvCmd = Get-Command uv -ErrorAction SilentlyContinue
+if (-not $uvCmd) {
+    $det = if ($Language -eq 'en') { 'uv not in PATH — browser-harness requires uv. Install: irm https://astral.sh/uv/install.ps1 | iex' }
+           else { 'uv nao esta no PATH — browser-harness requer uv. Instale: irm https://astral.sh/uv/install.ps1 | iex' }
+    Test-Item 'uv instalado' $false $det -Aviso
+} else {
+    Test-Item 'uv instalado' $true $uvCmd.Source
+
+    $bhCmd = Get-Command browser-harness -ErrorAction SilentlyContinue
+    if (-not $bhCmd) {
+        $det = if ($Language -eq 'en') { 'not installed — run: uv tool install --python 3.12 --upgrade --force browser-harness' }
+               else { 'nao instalado — rode: uv tool install --python 3.12 --upgrade --force browser-harness' }
+        Test-Item 'browser-harness instalado' $false $det -Aviso
+    } else {
+        Test-Item 'browser-harness instalado' $true $bhCmd.Source
+
+        # Skill registrada?
+        $bhSkillPath = Join-Path $TargetRoot 'skills\browser-harness\SKILL.md'
+        Test-Item 'browser-harness skill registrada' (Test-Path $bhSkillPath) $bhSkillPath
+
+        # Doctor check (so se nao SkipNetwork)
+        if (-not $SkipNetwork) {
+            try {
+                $doctorOut = & browser-harness --doctor 2>&1
+                $doctorText = ($doctorOut -join ' ')
+                $chromeOk = $doctorText -match '(?i)chrome running\s*(OK|PASS|running)'
+                $daemonOk = $doctorText -match '(?i)daemon alive\s*(OK|PASS|alive)'
+                if ($chromeOk) {
+                    Test-Item 'browser-harness doctor: chrome' $true 'running'
+                } else {
+                    Test-Item 'browser-harness doctor: chrome' $false 'not running or CDP not enabled' -Aviso
+                }
+                if ($daemonOk) {
+                    Test-Item 'browser-harness doctor: daemon' $true 'alive'
+                } else {
+                    Test-Item 'browser-harness doctor: daemon' $false 'not connected — enable chrome://inspect/#remote-debugging' -Aviso
+                }
+            } catch {
+                Test-Item 'browser-harness --doctor' $false $_.Exception.Message -Aviso
+            }
+        }
+    }
+}
+
 # --- Resumo ------------------------------------------------------------------
 Write-Host ''
 if ($erros.Count -eq 0) {

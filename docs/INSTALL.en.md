@@ -28,7 +28,7 @@ Optional — absence does not block install:
 
 | Tool | What you lose without it |
 |---|---|
-| `uvx` | Python LSP (`pyright-langserver`) |
+| `uv` / `uvx` | Python LSP (`pyright-langserver`) and `browser-harness` (browser control via CDP — see section 9.1) |
 | `ollama` | Local embeddings for OpenCodeRAG (auto-installed if missing — see section 9) |
 
 ## 2. Environment variables
@@ -147,6 +147,9 @@ checks:
 - Ollama installed, service responding on port 11434,
   `nomic-embed-text:latest` model available locally, and embedding health
   check (all as non-blocking warnings).
+- Browser Harness: `uv` on PATH, `browser-harness` installed, skill
+  registered at `skills/browser-harness/SKILL.md`, and `--doctor` reporting
+  Chrome + daemon OK (all as non-blocking warnings).
 
 Without network:
 
@@ -286,13 +289,66 @@ if it is listed as a provider in the active manifest.
 Remember to update the `ollama` provider whitelist in
 `config/llm-providers.json` to reflect the new model.
 
+## 9.1. Browser Harness (browser control via CDP)
+
+The installer automatically handles [browser-harness](https://github.com/browser-use/browser-harness),
+a CLI that connects the LLM directly to the user's real browser via Chrome
+DevTools Protocol. This step runs between Ollama and model auto-discovery
+(step 0.4 in `Install-Orchestration.ps1`) and **does not block** the install
+on failure.
+
+**Requires:** `uv` (Python package manager) on PATH.
+
+What happens with `-Force`:
+
+1. **`uv` missing?** Reports a warning and skips. Install with:
+   `irm https://astral.sh/uv/install.ps1 | iex`
+2. **Installs/upgrades** via `uv tool install --python 3.12 --upgrade --force browser-harness`.
+3. **Registers the skill** by running `browser-harness skill` and writing the
+   result to `~/.config/opencode/skills/browser-harness/SKILL.md`.
+4. **Disables recordings** (privacy by default).
+5. **Disables telemetry**.
+
+If any step fails, the installer prints manual instructions and continues
+with the rest of the orchestration normally.
+
+### Run manually (if auto didn't work)
+
+```powershell
+# Install uv (if missing)
+irm https://astral.sh/uv/install.ps1 | iex
+
+# Install browser-harness
+uv tool install --python 3.12 --upgrade --force browser-harness
+
+# Register skill
+New-Item -ItemType Directory -Path "$env:USERPROFILE\.config\opencode\skills\browser-harness" -Force
+browser-harness skill > "$env:USERPROFILE\.config\opencode\skills\browser-harness\SKILL.md"
+
+# Test connection (Chrome must be open with remote debugging)
+browser-harness --doctor
+```
+
+### Enable Chrome for remote control
+
+1. Open `chrome://inspect/#remote-debugging` in Chrome.
+2. Tick the checkbox "Allow remote debugging for this browser instance".
+3. Test: `browser-harness <<'PY'` `print(page_info())` `PY`
+
+### Skip browser-harness during install
+
+If you don't plan to use browser control and want to skip installation:
+no action needed — if `uv` is not on PATH, the step is skipped automatically
+without blocking anything.
+
 ## 10. Dependencies the installer does not resolve
 
 **Symlinks.** `payload-symlinks.template.json` lists the links the config
 expects. Re-creating them on Windows requires Developer Mode or an elevated
 shell, which cannot be assumed on a new machine, so the installer tries to
-create and reports instead of pretending it succeeded. Today there is one:
-`skills/archify` -> `~/.agents/skills/archify`.
+create and reports instead of pretending it succeeded. Today there are two:
+- `skills/archify` -> `~/.agents/skills/archify`
+- `skills/browser-harness` -> `~/.agents/skills/browser-harness`
 
 **Quests plugin source.** The payload ships
 `plugins/opencode-quests.ts`, the flattened file opencode loads — self-

@@ -510,6 +510,76 @@ if (Test-Path $ollamaScript) {
     Write-Host "  Install-Ollama.ps1 nao encontrado em $PSScriptRoot — pulando setup de Ollama" -ForegroundColor Yellow
 }
 
+# --- 0.4 Browser Harness (controle de browser via CDP) ------------------------
+# Instala browser-harness como uv tool (Python 3.12). Requer uv/uvx no PATH.
+# NAO bloqueia: se uv nao estiver presente ou a instalacao falhar, reporta aviso.
+# Registra a skill em ~/.config/opencode/skills/browser-harness/SKILL.md se
+# o comando `browser-harness skill` estiver disponivel apos install.
+Write-Section 'Browser Harness (controle de browser via CDP)'
+$uvCmd = Get-Command uv -ErrorAction SilentlyContinue
+if (-not $uvCmd) {
+    Write-Host '  uv nao esta no PATH — browser-harness requer uv (Python package manager)' -ForegroundColor Yellow
+    Write-Host '  Instale: irm https://astral.sh/uv/install.ps1 | iex' -ForegroundColor DarkGray
+    Write-Host '  A instalacao segue sem browser-harness — o resto da orquestracao funciona normalmente.' -ForegroundColor Yellow
+} else {
+    Write-Host "  uv encontrado: $($uvCmd.Source)"
+    $bhCmd = Get-Command browser-harness -ErrorAction SilentlyContinue
+    $bhInstalled = $false
+
+    if ($bhCmd) {
+        Write-Host '  browser-harness ja instalado — verificando atualizacao...' -ForegroundColor DarkGray
+        $bhInstalled = $true
+    }
+
+    if (-not $Force) {
+        if ($bhInstalled) {
+            Write-Host '  simulacao: atualizaria browser-harness (uv tool install --python 3.12 --upgrade --force browser-harness)' -ForegroundColor DarkGray
+        } else {
+            Write-Host '  simulacao: instalaria browser-harness (uv tool install --python 3.12 --upgrade --force browser-harness)' -ForegroundColor DarkGray
+        }
+    } else {
+        Write-Host '  instalando/atualizando browser-harness...'
+        $uvResult = & uv tool install --python 3.12 --upgrade --force browser-harness 2>&1
+        $uvExitCode = $LASTEXITCODE
+        $uvResult | ForEach-Object { Write-Host "    $_" }
+
+        if ($uvExitCode -ne 0) {
+            Write-Host "  FALHOU (exit $uvExitCode) — browser-harness nao instalado" -ForegroundColor Yellow
+            Write-Host '  Tente manualmente: uv tool install --python 3.12 --upgrade --force browser-harness' -ForegroundColor DarkGray
+        } else {
+            Write-Host '  browser-harness instalado com sucesso' -ForegroundColor Green
+
+            # Registrar skill no diretorio de skills do opencode
+            $bhSkillDir = Join-Path $TargetRoot 'skills\browser-harness'
+            if (-not (Test-Path $bhSkillDir)) { New-Item -ItemType Directory -Path $bhSkillDir -Force | Out-Null }
+            $bhSkillPath = Join-Path $bhSkillDir 'SKILL.md'
+            try {
+                $skillContent = & browser-harness skill 2>&1
+                if ($LASTEXITCODE -eq 0 -and $skillContent) {
+                    Set-Content -Path $bhSkillPath -Value ($skillContent -join "`n") -Encoding UTF8 -NoNewline
+                    Write-Host "  skill registrada: $bhSkillPath" -ForegroundColor Green
+                } else {
+                    Write-Host '  browser-harness skill falhou — usando SKILL.md do payload' -ForegroundColor Yellow
+                }
+            } catch {
+                Write-Host "  erro ao registrar skill: $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+
+            # Desabilitar recordings por default (privacidade)
+            try {
+                & browser-harness recordings disable 2>&1 | Out-Null
+                Write-Host '  recordings desabilitadas (default seguro)' -ForegroundColor DarkGray
+            } catch { }
+
+            # Desabilitar telemetria
+            try {
+                & browser-harness telemetry disable 2>&1 | Out-Null
+                Write-Host '  telemetria desabilitada' -ForegroundColor DarkGray
+            } catch { }
+        }
+    }
+}
+
 # --- 0.5 Auto-descoberta de models/providers do opencode ----------------------
 # Roda `opencode models --verbose` em diretorio vazio para listar o que o
 # opencode local realmente tem configurado. Valida a config ativa contra

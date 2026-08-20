@@ -5,5 +5,12 @@
     "target": "{{userAgents}}/skills/archify",
     "depth": 1,
     "why": "Skill archify - diagramas arquitetura, workflow, sequence, data-flow e lifecycle. O opencode carrega via symlink em ~/.config/opencode/skills/archify -> ~/.agents/skills/archify."
+  },
+  {
+    "url": "https://github.com/browser-use/browser-harness.git",
+    "ref": "main",
+    "target": "{{userAgents}}/skills/browser-harness",
+    "depth": 1,
+    "why": "Skill browser-harness - controle direto do browser via CDP para automacao, scraping, testes e interacao web. O opencode carrega via symlink em ~/.config/opencode/skills/browser-harness -> ~/.agents/skills/browser-harness."
   }
 ]

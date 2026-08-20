@@ -6,6 +6,11 @@
       "path": "skills/archify",
       "targetTemplate": "{{userAgents}}/skills/archify",
       "fallback": "O symlink skills/archify requer a skill externa ~/.agents/skills/archify. Sem ela, a skill nao carrega (nao bloqueia a instalacao)."
+    },
+    {
+      "path": "skills/browser-harness",
+      "targetTemplate": "{{userAgents}}/skills/browser-harness",
+      "fallback": "O symlink skills/browser-harness requer a skill externa ~/.agents/skills/browser-harness. Sem ela, a skill nao carrega (nao bloqueia a instalacao). Clone manualmente: git clone --depth 1 https://github.com/browser-use/browser-harness.git ~/.agents/skills/browser-harness"
     }
   ]
 }
