@@ -188,9 +188,12 @@ mensagem), nao por autorrelato do modelo:
 Metodo, sessoes e os falsos negativos que o instrumento produzia antes de ser
 corrigido: [`docs/MEASUREMENTS.md`](docs/MEASUREMENTS.md).
 
-Dois defeitos conhecidos e nao corrigidos do plugin de quests — estado global
-ao processo e perda de estagio em headless — estao em
-[`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
+Limitações conhecidas do plugin de quests — estado global ao processo e
+possível perda de despacho em headless — estão em
+[`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md). O watchdog recupera
+estágios travados em Plan Mode; o modo TUI persistente continua recomendado.
+Texto entre crases em instruções é preservado literalmente e nunca é executado
+pelo plugin.
 
 ## Leitura
 

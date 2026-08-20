@@ -90,14 +90,12 @@ usando o `sessionID` obtido do `ToolContext`. O despacho é **diferido para o
 evento `session.idle`**: o prompt do estágio só é entregue depois que o turno
 atual fecha.
 
-Esse diferimento é a origem de um defeito. Em execução headless o cliente
-`opencode run` pode sair antes do `idle`, e o estágio enfileirado se perde —
-aconteceu em cerca de 1 de 3 sessões nas medições. Em TUI persistente não
-aparece. A alternativa era despacho inline, que quebra o split de modelos, então
-o diferimento ficou.
-
-Se o despacho for recusado, o plugin cai para injeção de texto no TUI,
-preservando o comportamento anterior do plugin em vez de falhar.
+Esse diferimento explica a limitação de headless: `opencode run` pode sair
+antes de `session.idle`, perdendo o estágio enfileirado em parte das sessões.
+Em TUI persistente isso não ocorre. O watchdog detecta estágio sem
+`quest_advance`, tenta até dois redispatches e depois usa injeção TUI.
+`DWELL_MS` e `HEARTBEAT_MS` são atualmente 10 segundos. Texto entre crases é
+transportado literalmente; o plugin não executa Markdown como shell.
 
 ### Contexto atravessa o salto
 
@@ -113,18 +111,13 @@ raciocínio e ainda assim declarava `NO_CONTEXT`. Detalhe em
 Consequência de design: não é preciso passar estado entre estágios por arquivo
 para que o próximo estágio *entenda* o anterior.
 
-### Por que a revisão não é roteada
+### Por que revisão roteada não é revisão independente
 
-Rotear um estágio de revisão para outro modelo parece resolver autoavaliação,
-mas não resolve. O modelo roteado percebe a saída do estágio anterior como
-autoria própria — "I emitted them", verbatim de um probe. Isso vem de ele ver
-aquele texto como turno dele no mesmo contexto, não de compartilhar pesos.
-Trocar o modelo não desfaz a percepção. Revisão roteada seria autorrevisão com
-outros pesos.
-
-Por isso a revisão roteada por estágio costuma ser omitida — o estágio de
-revisão fica externo, em sessão separada, em vez de compartilhada com o
-mesmo modelo que acabou de escrever.
+O `model-routed-dev` roteia o estágio `review` para DeepSeek V4 Flash e o
+`handoff` para o mesmo slot. Isso melhora separação de modelo, mas não cria
+fronteira de segurança nem revisão independente: o contexto anterior continua
+visível na mesma sessão. Para aprovação independente, o Kiro ou outro processo
+precisa reler o diff e rerodar as validações.
 
 ## O plugin tem um repositório próprio
 

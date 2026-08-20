@@ -190,9 +190,12 @@ not by model self-report:
 Method, sessions and the false negatives the instrument produced before being
 fixed: [`docs/MEASUREMENTS.md`](docs/MEASUREMENTS.md).
 
-Two known and uncorrected defects in the quests plugin — process-global
-state and stage loss in headless — are covered in
-[`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
+Known quest-plugin limitations — process-global state and possible headless
+dispatch loss — are covered in
+[`docs/TROUBLESHOOTING.en.md`](docs/TROUBLESHOOTING.en.md). The watchdog
+recovers stages stalled in Plan Mode; persistent TUI remains recommended.
+Backtick-wrapped text in instructions is preserved literally and is never
+executed by the plugin.
 
 ## Reading
 

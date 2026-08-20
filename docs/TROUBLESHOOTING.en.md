@@ -74,14 +74,11 @@ automatically. In
 - If `quest_advance` is called before the next `session.idle`, the flag is
   cleared — positive signal that the model executed. Lines 740-742.
 - If the next `session.idle` arrives with the flag still armed, the stage
-  stalled. The plugin shows a warning toast and re-dispatches without
-  `agent`/`model`, going to whichever agent the TUI is currently on. If the
-  user already pressed Tab to Build, the retry lands there. Lines 783-811.
-- If the retry also stalls, it tries once more (maximum of 2 retries,
-  `MAX_STALL_RETRIES`). Lines 795, 481.
-- After 2 failures, it falls back to TUI injection
-  (`clearPrompt` → `appendPrompt` → `submitPrompt`), which works regardless
-  of mode. Lines 813-817.
+  stalled. The plugin shows a warning toast and re-dispatches using the same
+  declared `agent`/`model`, never the TUI's current mode.
+- If retries fail, the plugin pauses the quest and reports the blocker. There
+  is no silent Build fallback or inline injection, because that could execute
+  preflight/plan on the wrong agent.
 - The watchdog is reset in `clear()` (quest finalized/stopped) and in a
   successful `quest_advance`, so it does not fire false positives in future
   quests. Lines 614-616, 740-742.
@@ -89,17 +86,13 @@ automatically. In
 What you see during recovery:
 
 ```
-Stage "preflight" stalled (Plan Mode?) — retry 1/2 on current agent
+Stage "preflight" stalled (Plan Mode?) — retry 1/2 on routed agent
 ```
 
-If the retry works, the toast disappears and the quest continues. If it
-falls back to TUI injection, the quest also continues — but with the caveat
-that the stage ran without tools, so the result is plain text (which the
-next stage receives as context).
-
-If you need to avoid the root cause: switch the TUI to Build before
-firing the quest, or adjust the YAML so stages that depend on tools are
-not routed to the `plan` agent.
+If the retry works, the quest continues on the declared agent/model. If all
+retries fail, the message says the quest was paused; fix dispatch or resume
+after checking the session. The plugin never executes the stage in the TUI's
+current mode.
 
 ## A quest split between two sessions
 
@@ -181,17 +174,17 @@ or `enabled_providers` filtering. The verifier covers both.
 
 ## I changed the config and the install on another machine came out stale
 
-The `payload/` is derived from the live config and does not refresh itself:
+The `payload/` is the package source of truth and does not update the
+installed system automatically:
 
 ```powershell
-.\scripts\Sync-Payload.ps1 -Check   # exits 1 if divergent
-.\scripts\Sync-Payload.ps1          # syncs
+.\scripts\Sync-Payload.ps1 -Check   # exits 1 when drift exists
+.\scripts\Install-Orchestration.ps1 -Force  # installs the current payload
 ```
 
-Use `-Check` before committing. Without it the payload ages silently.
-
-If you edited `payload/` by hand, you lost it: the sync overwrites in the
-live -> payload direction. Edit the live config.
+Use `-Check` before committing. To change quests or plugins, edit the payload
+in this repository and reinstall; the sync script only compares and reports
+drift, it does not overwrite the source.
 
 ## I changed the plugin and nothing happened
 
@@ -339,3 +332,11 @@ timeout: 600   # 10 minutes instead of default 5
 stages:
   - id: ...
 ```
+
+## If backtick-wrapped text is executed
+
+The plugin does not interpret Markdown as shell. Backtick-wrapped text in
+input, context, or instructions is preserved literally; commands are executed
+only when the agent sends them through an authorized tool. If an older
+installation replaces backticks with command output, reinstall the current
+payload and restart opencode so the corrected plugin is loaded.

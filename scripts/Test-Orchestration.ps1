@@ -246,7 +246,34 @@ if ($cfgJson) {
     }
 }
 
+function Test-QuestStructure {
+    param([System.IO.FileInfo]$QuestFile)
+
+    $text = Get-Content $QuestFile.FullName -Raw -Encoding UTF8
+    $kindOk = $text -match '(?m)^kind:\s*quest\s*$'
+    Test-Item "quest $($QuestFile.Name) kind" $kindOk
+
+    $stageMatches = [regex]::Matches($text, '(?m)^\s+- id:\s*([A-Za-z0-9_-]+)\s*$')
+    $stageIds = @($stageMatches | ForEach-Object { $_.Groups[1].Value })
+    Test-Item "quest $($QuestFile.Name) stages" ($stageIds.Count -gt 0) "$($stageIds.Count) stage(s)"
+    if ($stageIds.Count -eq 0) { return }
+
+    for ($i = 0; $i -lt $stageMatches.Count; $i++) {
+        $match = $stageMatches[$i]
+        $start = $match.Index
+        $end = if ($i + 1 -lt $stageMatches.Count) { $stageMatches[$i + 1].Index } else { $text.Length }
+        $block = $text.Substring($start, $end - $start)
+        $targets = @([regex]::Matches($block, '(?m)^\s{6}[A-Za-z0-9_-]+:\s*([A-Za-z0-9_-]+)\s*$') |
+            ForEach-Object { $_.Groups[1].Value })
+        foreach ($target in ($targets | Sort-Object -Unique)) {
+            $valid = $target -eq 'done' -or $stageIds -contains $target
+            Test-Item "quest $($QuestFile.Name) transition -> $target" $valid
+        }
+    }
+}
+
 foreach ($qf in $questFiles) {
+    Test-QuestStructure -QuestFile $qf
     $refs = @(
         Select-String -Path $qf.FullName -Pattern '^\s*model:\s*(\S+)' -AllMatches |
         ForEach-Object { $_.Matches } |

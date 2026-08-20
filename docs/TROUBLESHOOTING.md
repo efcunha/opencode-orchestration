@@ -70,14 +70,11 @@ automaticamente. Em
 - Se `quest_advance` é chamado antes do próximo `session.idle`, o flag é
   limpo — sinal positivo de que o modelo executou. Linhas 740-742.
 - Se o próximo `session.idle` chega com o flag ainda armado, o estágio
-  travou. O plugin mostra um toast de aviso e re-despacha sem
-  `agent`/`model`, indo para qualquer agente ativo no TUI naquele momento.
-  Se o usuário já apertou Tab para Build, o retry cai lá. Linhas 783-811.
-- Se o retry também trava, tenta mais uma vez (máximo de 2 retries,
-  `MAX_STALL_RETRIES`). Linhas 795, 481.
-- Depois de 2 falhas, cai para TUI injection
-  (`clearPrompt` → `appendPrompt` → `submitPrompt`), que funciona
-  independente do modo. Linhas 813-817.
+  travou. O plugin mostra um toast de aviso e re-despacha usando o mesmo
+  `agent`/`model` declarado, nunca o modo atual do TUI.
+- Se os retries falharem, o plugin pausa a quest e reporta o bloqueio. Não há
+  fallback silencioso para Build nem injeção inline, porque isso poderia
+  executar preflight/plan no agente errado.
 - O watchdog é resetado em `clear()` (quest finalizada/parada) e em
   `quest_advance` bem-sucedido, para não disparar falsos positivos em
   quests futuras. Linhas 614-616, 740-742.
@@ -85,17 +82,13 @@ automaticamente. Em
 O que você vê durante a recuperação:
 
 ```
-Stage "preflight" stalled (Plan Mode?) — retry 1/2 on current agent
+Stage "preflight" stalled (Plan Mode?) — retry 1/2 on routed agent
 ```
 
-Se o retry funcionar, a toast some e a quest continua. Se cair no fallback
-de TUI injection, a quest também segue — mas com a ressalva de que o
-estágio rodou sem as ferramentas, então o resultado é texto puro (o que o
-próximo estágio recebe como contexto).
-
-Se você precisa evitar o problema de origem: troque o TUI para Build antes
-de disparar a quest, ou ajuste o YAML para que estágios que dependem de
-ferramentas não sejam roteados para o agente `plan`.
+Se o retry funcionar, a quest continua no agente/modelo declarado. Se todos
+falharem, a mensagem informa que a quest foi pausada; corrija o despacho ou
+retome após verificar a sessão. O plugin não executa o estágio no modo atual
+do TUI.
 
 ## Uma quest se dividiu em duas sessões
 
@@ -172,17 +165,17 @@ Vazio ou incompleto aponta para `opencode.jsonc` que não parseia, ou
 
 ## Mudei a config e a instalação numa outra máquina veio velha
 
-O `payload/` é derivado da config viva e não se atualiza sozinho:
+O `payload/` é a fonte de verdade do pacote e não se atualiza sozinho no
+sistema instalado:
 
 ```powershell
-.\scripts\Sync-Payload.ps1 -Check   # sai 1 se divergente
-.\scripts\Sync-Payload.ps1          # sincroniza
+.\scripts\Sync-Payload.ps1 -Check   # sai 1 se houver divergência
+.\scripts\Install-Orchestration.ps1 -Force  # instala o payload atual
 ```
 
-Use o `-Check` antes de commitar. Sem ele o payload envelhece em silêncio.
-
-Se você editou o `payload/` à mão, perdeu: o sync sobrescreve na direção viva →
-payload. Edite a config viva.
+Use `-Check` antes de commitar. Para alterar quests ou plugins, edite o
+payload deste repositório e reinstale; o script de sync apenas compara e
+reporta drift, não sobrescreve a fonte.
 
 ## Mudei o plugin e nada aconteceu
 
@@ -326,3 +319,11 @@ timeout: 600   # 10 minutos ao invés do default de 5
 stages:
   - id: ...
 ```
+
+## Se texto entre crases for executado
+
+O plugin não interpreta Markdown como shell. Texto entre crases em input,
+contexto ou instruções é preservado literalmente; comandos só são executados
+quando o próprio agente os envia por uma ferramenta autorizada. Se uma
+instalação antiga substituir crases por saída de comando, reinstale o payload
+atual e reinicie o opencode para carregar o plugin corrigido.

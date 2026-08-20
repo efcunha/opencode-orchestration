@@ -93,13 +93,14 @@ A quest NAO e uma chamada sincrona. O fluxo e:
 1. Voce digita `quest(file: "...")` no chat.
 2. O plugin carrega o YAML, valida referencias de modelo, arma o
    heartbeat, e mostra um toast `Quest started: "Nome"`.
-3. O plugin entrega o **primeiro estagio** ao agente correspondente
-   (`agent: build`, `agent: plan`, etc.) via `client.session.promptAsync`.
-4. O modelo do estagio recebe a instrucao, executa, e quando termina
-   chama a tool `quest_advance(stage: "proximo-id")` — **isso nao e
-   coisa sua**, e o proprio modelo.
-5. O plugin valida a transicao (`next` do YAML), troca o estado para o
-   proximo estagio, e dispara o despacho dele.
+3. O plugin enfileira o primeiro estágio e o despacha ao agente correspondente
+   (`agent: build`, `agent: plan`, etc.) via `client.session.promptAsync` quando
+   o turno atual fecha em `session.idle`.
+4. O modelo do estágio recebe a instrução, executa, e quando termina chama a
+   tool `quest_advance(stage: "proximo-id")` — **isso não é coisa sua**, é o
+   próprio modelo.
+5. O plugin valida a transição (`next` do YAML), troca o estado para o próximo
+   estágio e enfileira o despacho dele para o próximo `session.idle`.
 6. Volta ao passo 3 ate o estagio chamar `quest_advance("done")`.
 7. Final: toast `Quest complete: "Nome"`, estado zerado.
 
@@ -108,8 +109,8 @@ A quest NAO e uma chamada sincrona. O fluxo e:
 | Momento | Toast |
 |---|---|
 | Inicio | `Quest started: "Nome"` |
-| A cada ~30s (heartbeat) | `Quest: Nome \| Stage: id (i/n) \| elapsed \| status` |
-| Dwell reminder (sem output por 90s) | Re-dispara o estagio atual |
+| A cada ~10s (heartbeat) | `Quest: Nome \| Stage: id (i/n) \| elapsed \| status` |
+| Dwell reminder (sem output por ~10s) | Re-dispara o estagio atual |
 | Plano stall (Plan Mode) | `Stage "X" stalled (Plan Mode?) — retry 1/2 on current agent` |
 | Stall apos 2 retries | `Stage "X" stalled 2x — forcing TUI delivery` |
 | Final | `Quest complete: "Nome"` |
@@ -119,12 +120,12 @@ A quest NAO e uma chamada sincrona. O fluxo e:
 
 ### Heartbeat e dwell reminder
 
-O heartbeat roda a cada ~30s com status do estagio (idle/active, dwell
-remanescente). Util para saber se algo travou sem precisar abrir os logs.
+O heartbeat roda a cada ~10s com status do estágio (idle/active, dwell
+remanescente). Útil para saber se algo travou sem abrir os logs.
 
-A dwell reminder dispara se o modelo nao produz output por ~90s — o plugin
-re-entrega o estagio (nao cria um novo). E diferente do stall por Plan Mode:
-stall = turno fechou sem `quest_advance`; dwell = turno nao fechou.
+A dwell reminder dispara se o modelo não produz output por ~10s — o plugin
+reentrega o estágio (não cria um novo). É diferente do stall por Plan Mode:
+stall = turno fechou sem quest_advance; dwell = turno não fechou.
 
 ## 4. Exemplo completo: ponta-a-ponta
 
@@ -401,7 +402,7 @@ ativa, ela substitui.
 1. Abre o TUI: `opencode`.
 2. Confirma que esta em Build (rodape).
 3. Digita `quest(file: "minha-quest")`.
-4. Acompanha pelos toasts (heartbeat a cada ~30s).
+4. Acompanha pelos toasts (heartbeat a cada ~10s).
 5. Se precisar pausar: `/quest pause`. Retomar: `/quest resume`.
 6. Se algo claramente travou: `/quest stop`, investigar, recarregar
    com `quest(file: "minha-quest")`.

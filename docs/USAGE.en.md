@@ -110,8 +110,8 @@ The quest is NOT a synchronous call. The flow is:
 | Moment | Toast |
 |---|---|
 | Start | `Quest started: "Name"` |
-| Every ~30s (heartbeat) | `Quest: Name \| Stage: id (i/n) \| elapsed \| status` |
-| Dwell reminder (no output for 90s) | Re-delivers the current stage |
+| Every ~10s (heartbeat) | `Quest: Name \| Stage: id (i/n) \| elapsed \| status` |
+| Dwell reminder (no output for ~10s) | Re-delivers the current stage |
 | Plan stall | `Stage "X" stalled (Plan Mode?) — retry 1/2 on current agent` |
 | Stall after 2 retries | `Stage "X" stalled 2x — forcing TUI delivery` |
 | End | `Quest complete: "Name"` |
@@ -121,13 +121,13 @@ The quest is NOT a synchronous call. The flow is:
 
 ### Heartbeat and dwell reminder
 
-Heartbeat runs every ~30s with stage status (idle/active, remaining
-dwell). Useful to know whether something froze without opening logs.
+Heartbeat runs every ~10s with stage status (idle/active, remaining dwell).
+Useful for knowing whether something froze without opening logs.
 
-The dwell reminder fires if the model produces no output for ~90s — the
-plugin re-delivers the stage (does NOT create a new one). It is different
-from the Plan Mode stall: stall = turn closed without `quest_advance`;
-dwell = turn did not close.
+The dwell reminder fires if the model produces no output for ~10s — the plugin
+re-delivers the stage (does NOT create a new one). It is different from the
+Plan Mode stall: stall = turn closed without quest_advance; dwell = turn did
+not close.
 
 ## 4. Complete example: end-to-end
 
@@ -406,7 +406,7 @@ there is already an active quest, it replaces it.
 1. Open the TUI: `opencode`.
 2. Confirm you are in Build (footer).
 3. Type `quest(file: "my-quest")`.
-4. Follow along via the toasts (heartbeat every ~30s).
+4. Follow along via the toasts (heartbeat every ~10s).
 5. If you need to pause: `/quest pause`. Resume: `/quest resume`.
 6. If something clearly froze: `/quest stop`, investigate, re-fire
    with `quest(file: "my-quest")`.

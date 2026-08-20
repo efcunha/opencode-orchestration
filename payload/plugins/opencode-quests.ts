@@ -6,7 +6,6 @@
 
 import type { Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
-import { execSync } from "child_process"
 import { parse as parseYaml } from "yaml"
 import { readFileSync, readdirSync, existsSync } from "node:fs"
 import { join } from "node:path"
@@ -431,31 +430,6 @@ function formatCompleteMessage(state: QuestState): string {
   return lines.join("\n")
 }
 
-// ── helpers: backtick eval ──
-
-const MAX_BACKTICK_OUTPUT_LENGTH = 2_000
-
-function evaluateBackticks(msg: string): string {
-  return msg.replace(/`([^`]+)`/g, (_m: string, cmd: string) => {
-    const c = cmd.trim()
-    if (!c) return ""
-    try {
-      const o = (execSync(c, {
-        encoding: "utf-8", timeout: 30_000, windowsHide: true,
-        stdio: ["pipe", "pipe", "pipe"],
-      }) as string).trim()
-      if (!o) return "(no output)"
-      if (o.length > MAX_BACKTICK_OUTPUT_LENGTH) {
-        return o.slice(0, MAX_BACKTICK_OUTPUT_LENGTH) +
-          `\n… [truncated, ${o.length} total chars]`
-      }
-      return o
-    } catch (e: any) {
-      return `(error: ${e.message.split("\n")[0]})`
-    }
-  })
-}
-
 // ═══════════════════════════════════════════════════════
 //  Plugin
 // ═══════════════════════════════════════════════════════
@@ -487,10 +461,9 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
    * model's turn ended without calling quest_advance), the plugin treats the
    * stage as stalled — typically because Plan Mode blocked tool calls.
    *
-   * Recovery: re-dispatch the same stage WITHOUT specifying agent, which sends
-   * it to whatever agent the TUI is currently on (likely Build after the user
-   * pressed Tab). If that also fails, fall back to TUI injection. The goal is
-   * never stall silently.
+   * Recovery: re-dispatch the same stage with its declared agent/model so a
+   * routed stage never falls through to the TUI's current mode. If retries
+   * fail, pause the quest and report the routing blocker.
    */
   let dispatchedStageId: string | null = null
   let dispatchedStageMessage: string | null = null
@@ -570,11 +543,16 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
     if (inFlight) return
     inFlight = true
     try {
-      const msg = evaluateBackticks(message)
+      const msg = message
       if (stageNeedsRouting(stage)) {
         const failure = await dispatchStage(stage!, msg)
         if (!failure) return
-        toast(`Quest routing failed (${describeRoute(stage!)}): ${failure} — using current agent`, "warning")
+        if (state) {
+          state.paused = true
+          cancelDwell()
+        }
+        toast(`Quest routing blocked (${describeRoute(stage!)}): ${failure}. Quest paused; no fallback to current agent.`, "error", 8000)
+        return
       }
       await client.tui.clearPrompt()
       await client.tui.appendPrompt({ body: { text: msg } })
@@ -607,7 +585,7 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
     }
 
     // Queue instead of dispatching now: see pendingDispatch for the race this avoids.
-    pendingDispatch = { stage: stage!, message: evaluateBackticks(message) }
+    pendingDispatch = { stage: stage!, message }
     return [
       `Stage "${stage!.id}" queued for ${describeRoute(stage!)}.`,
       `It is dispatched when your turn closes, so that agent sees your output.`,
@@ -616,9 +594,9 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
   }
 
   /**
-   * Send the queued stage once the caller's turn has closed. Falls back to TUI
-   * injection if the routed dispatch is refused, so the stage is never lost —
-   * the caller was already told to stop, and silence would stall the quest.
+   * Send the queued stage once the caller's turn has closed. A routed dispatch
+   * failure pauses the quest instead of executing the stage in the current TUI
+   * mode, so stage routing remains fail-closed.
    */
   const flushPendingDispatch = async () => {
     if (!pendingDispatch || dispatching) return
@@ -635,10 +613,11 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
         armStageTimeout()
         return
       }
-      toast(`Quest routing failed (${describeRoute(stage)}): ${failure} — delivering inline`, "warning")
-      await client.tui.clearPrompt()
-      await client.tui.appendPrompt({ body: { text: message } })
-      await client.tui.submitPrompt()
+      if (state) {
+        state.paused = true
+        cancelDwell()
+      }
+      toast(`Quest routing blocked (${describeRoute(stage)}): ${failure}. Quest paused; no inline fallback.`, "error", 8000)
     } catch (e: any) {
       toast(`Quest dispatch error: ${e?.message ?? String(e)}`, "error")
     } finally {
@@ -835,11 +814,9 @@ Active quest commands: /quest [status|pause|resume|stop]`
         isIdle = true
         inFlight = false
 
-        // ── Stall detection (Plan Mode watchdog) ──
-        // If we dispatched a stage and the model's turn ended without calling
-        // quest_advance, the stage stalled. Recover by re-dispatching without
-        // a specific agent (goes to whatever the TUI is currently on), or fall
-        // back to TUI injection after MAX_STALL_RETRIES.
+        // ── Stall detection (Plan Mode) ──
+        // Keep routed stages on their declared agent/model. After the retry
+        // limit, pause and report the blocker; never use the current TUI mode.
         if (dispatchedStageId && !pendingDispatch && state) {
           stallRetries++
           const stageId = dispatchedStageId
@@ -848,28 +825,30 @@ Active quest commands: /quest [status|pause|resume|stop]`
           dispatchedStageMessage = null
 
           if (stallRetries <= MAX_STALL_RETRIES) {
-            toast(`Stage "${stageId}" stalled (Plan Mode?) — retry ${stallRetries}/${MAX_STALL_RETRIES} on current agent`, "warning")
-            // Re-dispatch without agent/model — goes to whatever mode the TUI is on now
-            const body: Record<string, any> = { parts: [{ type: "text", text: msg }] }
+            toast(`Stage "${stageId}" stalled (Plan Mode?) — retry ${stallRetries}/${MAX_STALL_RETRIES} on routed agent`, "warning")
+            const retryStage = getCurrentStage(state)
+            if (!retryStage) return
             try {
-              const res: any = await client.session.promptAsync({ path: { id: sessionID }, body })
-              if (res?.error) throw new Error(typeof res.error === "string" ? res.error : JSON.stringify(res.error))
-              // Re-arm watchdog for this retry
+              const failure = await dispatchStage(retryStage, msg)
+              if (failure) throw new Error(failure)
+              // Re-arm watchdog for this routed retry
               dispatchedStageId = stageId
               dispatchedStageMessage = msg
             } catch (e: any) {
-              toast(`Stall retry failed: ${e?.message ?? String(e)} — TUI fallback`, "error")
-              await client.tui.clearPrompt()
-              await client.tui.appendPrompt({ body: { text: msg } })
-              await client.tui.submitPrompt()
+              toast(`Routed stage retry failed: ${e?.message ?? String(e)}`, "error", 8000)
+              if (state) {
+                state.paused = true
+                cancelDwell()
+              }
               stallRetries = 0
             }
           } else {
-            toast(`Stage "${stageId}" stalled ${MAX_STALL_RETRIES}x — forcing TUI delivery`, "error")
+            toast(`Stage "${stageId}" stalled ${MAX_STALL_RETRIES}x — quest paused; no TUI fallback`, "error", 8000)
             stallRetries = 0
-            await client.tui.clearPrompt()
-            await client.tui.appendPrompt({ body: { text: msg } })
-            await client.tui.submitPrompt()
+            if (state) {
+              state.paused = true
+              cancelDwell()
+            }
           }
           return
         }

@@ -92,14 +92,12 @@ the body, using the `sessionID` obtained from `ToolContext`. Dispatch is
 **deferred to the `session.idle` event**: the stage's prompt is only delivered
 after the current turn closes.
 
-That deferral is the origin of a defect. In headless execution, the
-`opencode run` client can exit before `idle` fires, and the queued stage is
-lost — happened in roughly 1 of 3 sessions in the measurements. It does not
-appear in a persistent TUI. The alternative was inline dispatch, which breaks
-the model split, so the deferral stayed.
-
-If dispatch is refused, the plugin falls back to text injection in the TUI,
-preserving the plugin's previous behavior instead of failing.
+That deferral explains the headless limitation: `opencode run` can exit before
+`session.idle`, losing the queued stage in some sessions. It does not occur in
+persistent TUI. The watchdog detects a stage that ended without
+`quest_advance`, tries up to two redispatches, and then uses TUI injection.
+`DWELL_MS` and `HEARTBEAT_MS` are currently 10 seconds. Backtick-wrapped text
+is transported literally; the plugin does not execute Markdown as shell.
 
 ### Context crosses the handoff
 
@@ -115,18 +113,13 @@ reasoning and still declared `NO_CONTEXT`. Detail in
 Design consequence: there is no need to pass state between stages via file
 for the next stage to *understand* the previous one.
 
-### Why review is not routed
+### Why routed review is not independent review
 
-Routing a review stage to another model seems to solve self-evaluation, but
-it does not. The routed model perceives the previous stage's output as its
-own authorship — "I emitted them", verbatim from a probe. This comes from
-seeing that text as its own turn in the same context, not from sharing
-weights. Swapping the model does not undo the perception. Routed review
-would be self-review with different weights.
-
-This is why per-stage routed review is usually omitted — the review stage
-lives externally, in a separate session, rather than sharing the session
-with the model that just wrote.
+`model-routed-dev` routes the `review` stage to DeepSeek V4 Flash and the
+`handoff` stage to the same slot. This improves model separation, but it does
+not create a security boundary or independent review: prior context remains
+visible in the same session. For independent approval, Kiro or another process
+must reread the diff and rerun validation.
 
 ## The plugin has its own repository
 

@@ -1,136 +1,262 @@
 kind: quest
 name: Model Routed Dev
-description: "Preflight -> Plan -> Build -> Evidence -> Review -> Handoff across routed agent slots, with Bugfix recovery"
+description: "preflight -> plan -> build -> evidence -> review -> handoff, with routed models and bugfix recovery"
 context: >
-  The user's request is delivered in the "Task" block above the instruction.
-  Each stage runs on its declared agent and model. The normal path is
-  preflight -> plan -> build -> evidence -> review -> handoff. Review can route
-  defects through bugfix and back to evidence. Advance only by calling
-  quest_advance with an allowed target.
+  Universal development workflow for any repository and task source.
+  The user's request is delivered in the Task block above.
+
+  TASK SOURCE — identify the request from one of these forms:
+    (a) Spec task: .kiro/specs/<feature>/tasks.md -> task <id>
+    (b) Command task: .opencode/command/<command>.md -> <task-id>
+    (c) Jira ticket: <PROJECT>-<number>, when Jira MCP is available
+    (d) Freeform: the user's direct task description
+
+  For (a), read tasks.md and only the referenced sections of requirements.md
+  and design.md. For (b), read the command file and extract the requested task.
+  For (c), read the issue and extract scope and acceptance criteria. For (d),
+  use the input as the inline specification.
+
+  EVIDENCE PATH — derive it from the task source:
+    (a) .kiro/specs/<feature>/evidence/<task-id>.md
+    (b) .kiro/evidence/<command>/<task-id>.md
+    (c) .kiro/evidence/jira/<PROJECT>-<number>.md
+    (d) .kiro/evidence/adhoc/<slug>.md
+
+  UNIVERSAL SAFETY RULES:
+    1. Prefix shell commands with rtk when rtk is available.
+    2. Use code-review-graph and OpenCodeRAG before manual code exploration when available.
+    3. Use local homologation first. Do not target production or cloud infrastructure during build.
+    4. Do not expose credentials, tokens, secrets, or private data in prompts, logs, evidence, or reports.
+    5. Verify migration history before creating a migration. Never invent a revision ID.
+    6. Unknown data remains unavailable; never convert missing data to zero.
+    7. Do not perform real cloud mutations, destructive actions, deploys, pushes, or merges.
+    8. Do not edit files outside the current repository.
+    9. Do not mark task checkboxes; the external reviewer owns acceptance.
+
+  STAGE ROUTING:
+    preflight and plan use agent=plan with deepseek/deepseek-v4-pro.
+    build uses agent=build with minimax-coding-plan/MiniMax-M3.
+    bugfix uses agent=bugfix with deepseek/deepseek-v4-pro.
+    evidence uses agent=build tools with deepseek/deepseek-v4-flash.
+    review and handoff use agent=review with deepseek/deepseek-v4-flash.
+
+  CONTEXT CONTRACT:
+    Each stage must report the concrete facts needed by the next stage.
+    Plan must include reproduction or current-state evidence verbatim.
+    Build must stop without editing if it cannot see that plan evidence.
+    Evidence must include expected versus actual results and honest uncertainties.
+
+  ADVANCE CONTRACT:
+    Every stage must call quest_advance with an allowed target when complete.
+    The normal path is preflight -> plan -> build -> evidence -> review -> handoff -> done.
+    A confirmed defect routes review or build to bugfix, and bugfix routes back to evidence.
+
 stages:
   - id: preflight
-    description: "Stage 0 - validate scope and execution preconditions (plan slot)"
+    description: "Stage 0 - repository safety gate (read-only)"
     agent: plan
     model: deepseek/deepseek-v4-pro
     instruction: |
-      Read the user's request in the "Task" block and perform preflight only.
-      Confirm scope, relevant files, repository safety constraints, and whether
-      implementation can proceed. Do not edit files in this stage.
-      If preflight passes, call quest_advance("plan"). If a blocking condition
-      prevents safe execution, report it and call quest_advance("handoff").
+      Perform preflight only. Do not write files, create worktrees, commit, push, merge, deploy, or mutate cloud resources.
+
+      In the current repository, collect and report:
+        rtk git status --short
+        rtk git branch --show-current
+        rtk git worktree list
+        rtk git stash list
+        rtk git branch --no-merged main --list "task/*" "corrective/*" "fix/*"
+      If available, read .kiro/execution-lock.json and report its fields without secrets.
+
+      Extract the target task id from the Task block. Classify every non-merged task/corrective/fix branch:
+        PRÓPRIA: branch id matches the target task id; it is a resumable branch and does not block.
+        ALHEIA: any other task id or any corrective/fix branch for another task; it blocks.
+
+      Block when any of these is true:
+        - more than one worktree exists;
+        - an ALHEIA non-merged branch exists;
+        - an execution lock without ended_at_utc is younger than two hours and belongs to another task;
+        - the PRÓPRIA branch is checked out in another worktree;
+        - an open lock older than two hours is orphaned and needs explicit user confirmation.
+
+      Do not block on a dirty tree, a closed lock, a PRÓPRIA branch, or an obsolete branch that is absent from --no-merged. Report these conditions.
+
+      If cleared, declare CLEARED and call quest_advance("plan").
+      If blocked, declare BLOCKED with one concrete reason and call quest_advance("handoff").
     checklist:
-      - "Scope and safety constraints checked"
-      - "No code or file edits produced"
-      - "quest_advance(\"plan\") or quest_advance(\"handoff\") called"
+      - "Worktrees counted"
+      - "Non-merged branches checked with --no-merged"
+      - "Every branch classified as PRÓPRIA or ALHEIA"
+      - "Execution lock read and classified"
+      - "CLEARED or BLOCKED verdict declared"
+      - "No files written"
+      - "quest_advance called"
     next:
       proceed: plan
       blocked: handoff
 
   - id: plan
-    description: "Stage 1 - plan the request (plan slot)"
+    description: "Stage 1 - locate task, understand scope, and reproduce (read-only)"
     agent: plan
     model: deepseek/deepseek-v4-pro
     instruction: |
-      Read the user's request in the "Task" block and produce ONLY a short
-      implementation plan:
-        - Goal (1 sentence)
-        - Files to add or modify (paths)
-        - Public API change (if any)
-        - Validation and test cases (3-5 bullets)
-      Do not write code or edit files. If the plan needs correction, call
-      quest_advance("plan"). If implementation is ready, call
-      quest_advance("build"). If no implementation changes are required,
-      call quest_advance("evidence").
+      Read the task source identified in the Task block and produce the implementation plan. Do not write code, edit files, create migrations, or commit.
+
+      Report:
+        - task id and source
+        - objective and scope boundary
+        - files and symbols likely affected, with line references
+        - exact acceptance criteria and what counts as done
+        - evidence required
+        - dependencies, risks, and uncertainties
+        - validation commands and expected results
+
+      Reproduce the problem when it is a bugfix, show current absence when it is a new feature, or show the current code and intended delta for a refactor. Include command and output verbatim. Do not claim reproduction from source inspection alone.
+
+      The report must contain a compact handoff block for build. If the build stage cannot see the reproduction or current-state evidence, it must stop without editing and route to handoff.
+
+      If the plan is ready, call quest_advance("build"). If the plan needs redesign, call quest_advance("plan"). If there is no real task object, call quest_advance("evidence") with NO_OBJECT status.
     checklist:
-      - "Plan emitted in the requested format"
-      - "No code or file edits produced"
-      - "Allowed quest_advance call made"
+      - "Task source located and parsed"
+      - "Scope and acceptance criteria extracted"
+      - "Problem reproduced or current absence demonstrated with verbatim evidence"
+      - "Affected files and symbols listed"
+      - "Validation plan and uncertainties reported"
+      - "quest_advance called"
     next:
       implement: build
-      revise: plan
-      no_changes: evidence
+      redesign: plan
+      no_object: evidence
 
   - id: build
-    description: "Stage 2 - implement the plan (build slot)"
+    description: "Stage 2 - implement approved scope"
     agent: build
     model: minimax-coding-plan/MiniMax-M3
     instruction: |
-      Read the preflight, plan, and user's request in the "Task" block.
-      Implement the approved change exactly within scope using write/edit tools.
-      Do not change unrelated files, credentials, or infrastructure. When
-      implementation is complete, summarize changed files and call
-      quest_advance("evidence"). If the plan is invalid or requires revision,
-      stop editing and call quest_advance("plan").
+      Read preflight, plan, and the user's Task block. Confirm the plan handoff contains reproduction or current-state evidence before editing. If it is absent, do not guess or edit; report PLAN_CONTEXT_MISSING and call quest_advance("handoff").
+
+      Implement only the approved scope with write/edit tools. Use the repository's local development and test workflow. Preserve tenant, security, provider, and data-quality invariants. Do not modify credentials, unrelated files, production, Railway, cloud resources, or infrastructure unless the task explicitly requires a local configuration change.
+
+      Run the relevant tests and checks. If implementation is complete, summarize changed files and call quest_advance("evidence"). If a test or check fails because of an in-scope defect, report the failure and call quest_advance("bugfix"). If the plan is invalid, call quest_advance("plan").
     checklist:
-      - "Implementation matches the approved plan"
-      - "Only in-scope files were changed"
-      - "Allowed quest_advance call made"
+      - "Plan handoff and reproduction/current-state evidence visible"
+      - "Only approved in-scope files changed"
+      - "Relevant tests and checks executed"
+      - "No push, merge, deploy, or real cloud mutation"
+      - "Changed files summarized"
+      - "quest_advance called"
     next:
       evidence: evidence
-      revise: plan
+      bugfix: bugfix
+      redesign: plan
+      blocked: handoff
 
   - id: evidence
-    description: "Stage 3 - validate implementation and collect evidence (build slot)"
+    description: "Stage 3 - validate implementation and write evidence"
     agent: build
-    model: minimax-coding-plan/MiniMax-M3
+    model: deepseek/deepseek-v4-flash
     instruction: |
-      Validate the implementation against the user's request and plan. Run
-      relevant checks, inspect the diff, and report concrete evidence. Do not
-      introduce unrelated changes. When evidence is complete, call
-      quest_advance("review").
+      Validate the implementation independently against the Task block and plan. Keep agent=build so write tools remain available, but use the DeepSeek Flash model for this evidence stage.
+
+      Run relevant tests, lint, type checks, migration checks, and local homologation required by the task. Inspect the diff and record expected versus actual results. Do not add unrelated fixes.
+
+      Write the evidence artifact at the path derived from the task source in the context. Create intermediate directories when needed. Include:
+        # Task <id> — <title>
+        ## Preflight
+        ## Problem or current state
+        ## Change
+        ## Validation
+        ## Expected versus actual
+        ## Acceptance criteria
+        ## Files changed
+        ## Migration
+        ## What was not done
+        ## Uncertainty
+
+      For NO_OBJECT, record why the task has no object and include concrete source and command evidence. Never mark a missing test or unavailable environment as PASS.
+
+      When evidence is complete, call quest_advance("review").
     checklist:
-      - "Relevant validation checks executed"
-      - "Diff and scope reviewed"
-      - "Allowed quest_advance call made"
+      - "Evidence artifact written at the derived path"
+      - "Commands and observed results recorded concretely"
+      - "Expected versus actual compared"
+      - "Diff scope reviewed"
+      - "Uncertainty reported honestly"
+      - "No task checkbox marked"
+      - "quest_advance called"
     next:
       review: review
 
   - id: review
-    description: "Stage 4 - independent review against request and evidence (review slot)"
+    description: "Stage 4 - review implementation against task and evidence"
     agent: review
     model: deepseek/deepseek-v4-flash
     instruction: |
-      Review the implementation, plan, evidence, and user's request in the
-      "Task" block. Report defects, missing requirements, scope violations,
-      and validation gaps. Do not silently accept failures. If review passes,
-      call quest_advance("handoff"). If a correctable defect exists, describe
-      it precisely and call quest_advance("bugfix").
+      Review the implementation, plan, evidence, diff, and original Task block. Check acceptance criteria, scope, security, data integrity, migration safety, and validation quality. Do not treat model self-report or unverified test claims as proof.
+
+      This is a routed review stage in the same quest context, not a separate security boundary. State that limitation when relevant. Report PASS only when evidence supports it. Report each defect with file, line, impact, and minimal correction.
+
+      If no correctable defect remains, call quest_advance("handoff"). If an in-scope defect is confirmed, call quest_advance("bugfix").
     checklist:
-      - "Implementation reviewed against requirements"
-      - "Defects and gaps reported explicitly"
-      - "quest_advance(\"handoff\") or quest_advance(\"bugfix\") called"
+      - "Acceptance criteria checked against concrete evidence"
+      - "Scope and security reviewed"
+      - "Unverified claims and gaps called out"
+      - "Defects include file, line, and impact"
+      - "quest_advance called"
     next:
       approved: handoff
       fix: bugfix
 
   - id: bugfix
-    description: "Stage 5 - correct review findings (bugfix slot)"
+    description: "Stage 5 - apply a minimal correction and revalidate"
     agent: bugfix
     model: deepseek/deepseek-v4-pro
     instruction: |
-      Read the review findings, plan, evidence, and user's request. Correct
-      only confirmed in-scope defects using write/edit tools. Summarize every
-      changed file. If corrections are complete, call quest_advance("evidence")
-      for revalidation. If the finding cannot be safely corrected in scope,
-      document the blocker and call quest_advance("handoff").
+      Read the review or build failure and identify the root cause in one or two lines. Apply only the smallest confirmed in-scope correction. Do not rewrite unrelated code, weaken tests, change acceptance criteria, or broaden scope.
+
+      Re-run the failing validation and relevant lint/type checks. Report concrete output. Limit bugfix recovery to two cycles per quest execution. If the defect remains after two cycles or cannot be corrected safely, report BLOCKED and call quest_advance("handoff"). If corrected, call quest_advance("evidence"). If the plan itself is wrong, call quest_advance("plan").
     checklist:
-      - "Confirmed review findings addressed or blocker documented"
-      - "Only in-scope files were changed"
-      - "quest_advance(\"evidence\") or quest_advance(\"handoff\") called"
+      - "Root cause identified"
+      - "Minimal in-scope correction applied"
+      - "Failing validation rerun with concrete result"
+      - "Relevant lint and type checks rerun"
+      - "Bugfix cycle limit respected"
+      - "quest_advance called"
     next:
-      recheck: evidence
+      revalidate: evidence
+      redesign: plan
       blocked: handoff
 
   - id: handoff
-    description: "Stage 6 - summarize outcome and finish the quest"
+    description: "Stage 6 - produce final handoff and stop"
     agent: review
     model: deepseek/deepseek-v4-flash
     instruction: |
-      Prepare the final handoff from the completed workflow. Summarize the
-      request, stages completed, files changed, validation evidence, remaining
-      risks, and any blockers. Do not edit files. When the handoff is complete,
-      call quest_advance("done").
+      Produce the final handoff. Do not edit files, commit, merge, push, deploy, or continue implementation.
+
+      Print exactly:
+        TASK: <task-id>
+        STATUS: READY_FOR_REVIEW | BLOCKED | NO_OBJECT
+        BRANCH: <current branch>
+        EVIDENCE: <evidence path or n/a>
+        FILES_CHANGED:
+        - <path or none>
+        TESTS:
+        - <command>: <PASS|FAIL|BLOCKED|not run>
+        MIGRATION: <id or none>
+        LINT: ruff <PASS|FAIL|BLOCKED|n/a>, mypy <PASS|FAIL|BLOCKED|n/a>
+        RISKS:
+        - <item or none>
+        UNCERTAINTIES:
+        - <item or none>
+
+      End with exactly one final line:
+        HANDOFF: branch=<current branch> evidence=<evidence path or n/a>
+      If blocked, include a concrete BLOCKED line before the final HANDOFF line.
+      When the handoff is printed, call quest_advance("done") and stop.
     checklist:
-      - "Final outcome and validation evidence summarized"
-      - "Remaining risks or blockers stated"
+      - "Handoff block printed in the required format"
+      - "Evidence, files, tests, migration, lint, risks, and uncertainties reported"
+      - "Final HANDOFF line printed"
+      - "No merge, push, deploy, or checkbox"
       - "quest_advance(\"done\") called"
+      - "Execution stopped"
