@@ -28,6 +28,7 @@ Opcionais, ausencia nao bloqueia a instalacao:
 | Ferramenta | O que perde sem ela |
 |---|---|
 | `uvx` | LSP `python` (`pyright-langserver`) |
+| `ollama` | Embeddings locais para OpenCodeRAG (auto-instalado se ausente — ver secao 9) |
 
 ## 2. Variaveis de ambiente
 
@@ -142,6 +143,9 @@ checa:
 - Cada referencia de modelo — `model`, `small_model`, `agent.*.model` e o
   `model:` de cada estagio de quest — aponta para um modelo que existe.
 - Chamada real de API ao DeepSeek e ao MiniMax.
+- Ollama instalado, servico respondendo na porta 11434, modelo
+  `nomic-embed-text:latest` disponivel localmente e health check de embedding
+  (tudo como aviso nao-bloqueante).
 
 Sem rede:
 
@@ -216,7 +220,69 @@ O exemplo em `scripts/llm-providers.example.json` mostra Anthropic + MiniMax
 + Ollama. Ele e a fonte de verdade para o schema. `scripts/llm-defaults.json`
 tambem e fonte: se faltar um campo no seu override, copie de la.
 
-## 9. Dependencias que a instalacao nao resolve
+## 9. Ollama + OpenCodeRAG (auto-instalado)
+
+O instalador cuida automaticamente do Ollama e do modelo de embedding
+necessario para o `opencode-rag-plugin` funcionar. O passo roda entre os
+pre-requisitos e a auto-descoberta de modelos (step 0.3 no
+`Install-Orchestration.ps1`) e **nao bloqueia** a instalacao se falhar.
+
+O que acontece com `-Force`:
+
+1. **Ollama ausente?** Instala silenciosamente via script oficial
+   (`irm https://ollama.com/install.ps1 | iex`). Se o script falhar, faz
+   fallback para download direto do `OllamaSetup.exe` com flags
+   `/VERYSILENT /NORESTART /SP-`.
+2. **Servico parado?** Inicia `ollama serve` em background e aguarda ate
+   120s pela porta 11434 responder.
+3. **Modelo `nomic-embed-text:latest` ausente?** Executa
+   `ollama pull nomic-embed-text:latest` (~274 MB na primeira vez).
+4. **Health check.** Envia um embedding de teste para
+   `http://localhost:11434/api/embeddings` e valida que o vetor retornado
+   tem dimensao > 0.
+
+Se qualquer passo falhar, o instalador imprime instrucoes manuais e segue
+com o resto da orquestracao normalmente.
+
+### Rodar manualmente (se o auto nao funcionou)
+
+```powershell
+# Instalar Ollama
+irm https://ollama.com/install.ps1 | iex
+
+# Iniciar servico (se nao subiu automaticamente)
+ollama serve
+
+# Puxar modelo de embedding (em outro terminal)
+ollama pull nomic-embed-text:latest
+
+# Verificar
+ollama list
+```
+
+### Pular Ollama na instalacao
+
+Se voce nao pretende usar OpenCodeRAG e quer evitar o download:
+
+```powershell
+# Chamar Install-Ollama.ps1 diretamente com -SkipInstall
+.\scripts\Install-Ollama.ps1 -Force -SkipInstall
+```
+
+Ou simplesmente remover `ollama` de `enabled_providers` no
+`config/llm-providers.json` — o instalador so tenta instalar Ollama se ele
+consta como provider no manifesto ativo.
+
+### Trocar o modelo de embedding
+
+```powershell
+.\scripts\Install-Ollama.ps1 -Force -ModelName "mxbai-embed-large:latest"
+```
+
+Lembre de atualizar o whitelist do provider `ollama` em
+`config/llm-providers.json` para refletir o novo modelo.
+
+## 10. Dependencias que a instalacao nao resolve
 
 **Symlinks.** `payload-symlinks.template.json` lista os links que a configuracao
 espera. Recria-los no Windows exige Developer Mode ou shell elevado, o que nao se
@@ -235,7 +301,7 @@ o plugin, nao para usa-lo.
 `~/.agents/skills/` para os symlinks resolverem. O instalador nao mexe em
 `~/.agents/`.
 
-## 10. Depois de instalar
+## 11. Depois de instalar
 
 Confirme que o roteamento por estagio chega ao modelo certo, em vez de
 confiar na configuracao:
@@ -258,7 +324,7 @@ Rode uma quest por vez. O estado da quest e global ao processo, nao por sessao
 — duas concorrentes se dividem entre sessoes. Detalhe em
 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md).
 
-## 11. Desinstalar
+## 12. Desinstalar
 
 ```bash
 npm uninstall -g opencode-orchestration
