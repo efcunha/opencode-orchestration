@@ -302,6 +302,79 @@ if (-not $SkipNetwork) {
     }
 }
 
+# --- 7. Ollama + modelo de embedding (OpenCodeRAG) ---------------------------
+Write-Host ''
+$ollamaLabel = if ($Language -eq 'en') { 'Ollama + embedding model (OpenCodeRAG)' } else { 'Ollama + modelo de embedding (OpenCodeRAG)' }
+Write-Host $ollamaLabel
+
+$ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
+if (-not $ollamaCmd) {
+    $det = if ($Language -eq 'en') { 'ollama not in PATH — install: irm https://ollama.com/install.ps1 | iex' }
+           else { 'ollama nao esta no PATH — instale: irm https://ollama.com/install.ps1 | iex' }
+    Test-Item 'ollama instalado' $false $det -Aviso
+} else {
+    Test-Item 'ollama instalado' $true $ollamaCmd.Source
+
+    # Servico respondendo?
+    $ollamaPort = 11434
+    $ollamaUp = $false
+    try {
+        $resp = Invoke-WebRequest -Uri "http://localhost:$ollamaPort/" -TimeoutSec 5 -UseBasicParsing -ErrorAction SilentlyContinue
+        $ollamaUp = ($resp.StatusCode -eq 200)
+    } catch { $ollamaUp = $false }
+
+    if ($ollamaUp) {
+        Test-Item 'ollama serve (porta 11434)' $true 'respondendo'
+    } else {
+        $det = if ($Language -eq 'en') { 'not responding — run: ollama serve' }
+               else { 'nao responde — rode: ollama serve' }
+        Test-Item 'ollama serve (porta 11434)' $false $det -Aviso
+    }
+
+    # Modelo nomic-embed-text presente?
+    $embedModel = 'nomic-embed-text:latest'
+    $modelFound = $false
+    try {
+        $raw = & ollama list 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            $lines = ($raw -join "`n") -split "`r?`n" | Where-Object { $_ -and $_ -notmatch '^NAME' }
+            foreach ($line in $lines) {
+                $parts = ($line -split '\s+', 2)
+                if ($parts.Count -gt 0) {
+                    $mName = $parts[0].Trim()
+                    if ($mName -eq $embedModel -or $mName -match '^nomic-embed-text') {
+                        $modelFound = $true
+                        break
+                    }
+                }
+            }
+        }
+    } catch { }
+
+    if ($modelFound) {
+        Test-Item "modelo $embedModel" $true 'disponivel localmente'
+    } else {
+        $det = if ($Language -eq 'en') { "not found — pull: ollama pull $embedModel" }
+               else { "nao encontrado — puxe: ollama pull $embedModel" }
+        Test-Item "modelo $embedModel" $false $det -Aviso
+    }
+
+    # Health check embedding (so se servico up e modelo presente)
+    if ($ollamaUp -and $modelFound -and -not $SkipNetwork) {
+        try {
+            $body = @{ model = $embedModel; prompt = 'test' } | ConvertTo-Json -Compress
+            $emb = Invoke-RestMethod -Uri "http://localhost:$ollamaPort/api/embeddings" `
+                                     -Method Post -Body $body `
+                                     -ContentType 'application/json' `
+                                     -TimeoutSec 30
+            $dim = if ($emb.embedding) { $emb.embedding.Count } else { 0 }
+            Test-Item 'embedding health check' ($dim -gt 0) "dimensao: $dim"
+        } catch {
+            Test-Item 'embedding health check' $false $_.Exception.Message -Aviso
+        }
+    }
+}
+
 # --- Resumo ------------------------------------------------------------------
 Write-Host ''
 if ($erros.Count -eq 0) {

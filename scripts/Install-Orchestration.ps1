@@ -484,6 +484,30 @@ if (-not (Test-Prerequisites)) {
     exit 1
 }
 
+# --- 0.3 Ollama + modelo de embedding (para OpenCodeRAG) ----------------------
+# Instala Ollama silenciosamente se ausente, inicia o servico, e puxa o modelo
+# nomic-embed-text:latest. NAO bloqueia: falhas sao reportadas como aviso.
+# O modelo de embedding e necessario para o opencode-rag-plugin funcionar.
+Write-Section 'Ollama + modelo de embedding (OpenCodeRAG)'
+$ollamaScript = Join-Path $PSScriptRoot 'Install-Ollama.ps1'
+if (Test-Path $ollamaScript) {
+    $ollamaArgs = @{}
+    if ($Force) { $ollamaArgs.Force = $true }
+    $ollamaResult = & $ollamaScript @ollamaArgs
+    if ($ollamaResult -and -not $ollamaResult.Success) {
+        Write-Host ''
+        Write-Host '  Ollama setup incompleto — OpenCodeRAG pode nao funcionar.' -ForegroundColor Yellow
+        Write-Host '  Para resolver manualmente:' -ForegroundColor Yellow
+        Write-Host '    1. Instale Ollama: irm https://ollama.com/install.ps1 | iex' -ForegroundColor DarkGray
+        Write-Host '    2. Inicie o servico: ollama serve' -ForegroundColor DarkGray
+        Write-Host '    3. Puxe o modelo: ollama pull nomic-embed-text:latest' -ForegroundColor DarkGray
+        Write-Host ''
+        Write-Host '  A instalacao segue sem Ollama — o resto da orquestracao funciona normalmente.' -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "  Install-Ollama.ps1 nao encontrado em $PSScriptRoot — pulando setup de Ollama" -ForegroundColor Yellow
+}
+
 # --- 0.5 Auto-descoberta de models/providers do opencode ----------------------
 # Roda `opencode models --verbose` em diretorio vazio para listar o que o
 # opencode local realmente tem configurado. Valida a config ativa contra
