@@ -64,15 +64,20 @@ cd opencode-orchestration
 npm install -g .
 ```
 
-This package's `postinstall` triggers `scripts/install.js`, which:
+This package's `postinstall` runs `scripts/install.js` in safe mode: it installs
+npm dependencies but does not change global OpenCode configuration or invoke
+PowerShell. Effective installation requires an explicit action:
 
-1. Detects `npm root -g`, `$USERPROFILE` and `$HOME`.
-2. Forwards them as `ORCH_NPM_GLOBAL_NODE_MODULES`, `ORCH_USER_HOME`,
-   `ORCH_USER_AGENTS`.
-3. Calls `scripts/Install-Orchestration.ps1 -Force`.
-4. PowerShell: installs missing MCP deps, renders templates, backs up the
-   existing destination, copies payload, tries to create symlinks, validates
-   with `Test-Orchestration.ps1`.
+```bash
+npm run install:force
+# or, after a global install:
+opencode-orchestration --force
+```
+
+The effective action detects `npm root -g`, `$USERPROFILE`, and `$HOME`. Then
+PowerShell installs missing MCP deps, renders templates, backs up the existing
+destination, copies the payload, tries to create symlinks, and validates with
+`Test-Orchestration.ps1`.
 
 A **local** install (without `-g`) also works:
 
@@ -382,9 +387,11 @@ For the full usage guide (modes of `quest(...)`, slash command `/quest`,
 operational rules, three ways to fire), see
 [`docs/USAGE.md`](docs/USAGE.md).
 
-Run one quest at a time. Quest state is process-global, not per session —
-two concurrent quests split between sessions. Detail in
-[`TROUBLESHOOTING.md`](TROUBLESHOOTING.md).
+Run one quest at a time. The plugin keeps one active quest per process and
+records its owning `sessionID`: another session cannot take over or corrupt the
+runtime, but the process does not yet provide independent concurrent quests.
+For parallelism, use separate opencode processes. Detail in
+[`TROUBLESHOOTING.en.md`](TROUBLESHOOTING.en.md).
 
 ## 12. Uninstall
 

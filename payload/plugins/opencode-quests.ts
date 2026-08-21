@@ -38,11 +38,16 @@ type Quest = {
   stages: Stage[]
 }
 
+type QuestStatus = "running" | "paused" | "blocked" | "timed_out" | "completed" | "stopped"
+
 type QuestState = {
   quest: Quest
   currentStageId: string
   startedAt: number
   paused: boolean
+  status: QuestStatus
+  /** Session that owns this quest. Cross-session operations fail closed. */
+  sessionID: string
   /** The user's task/request, captured from the `input` tool arg. Shown to every stage. */
   input?: string
 }
@@ -183,8 +188,8 @@ function listQuestFiles(cwd?: string): string[] {
 function parseModelRef(ref?: string): { providerID: string; modelID: string } | undefined {
   if (typeof ref !== "string") return undefined
   const trimmed = ref.trim()
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.:-]+(?:\/[A-Za-z0-9_.:-]+)*$/.test(trimmed)) return undefined
   const i = trimmed.indexOf("/")
-  if (i < 1 || i === trimmed.length - 1) return undefined
   return { providerID: trimmed.slice(0, i), modelID: trimmed.slice(i + 1) }
 }
 
@@ -220,9 +225,10 @@ function validateQuestSchema(doc: any): Quest | string {
   for (let i = 0; i < doc.stages.length; i++) {
     const s = doc.stages[i]
     if (!s || typeof s !== "object") return `Schema error: stages[${i}] must be an object.`
-    if (typeof s.id !== "string" || !s.id.trim()) return `Schema error: stages[${i}].id is required.`
-    if (stageIds.has(s.id)) return `Schema error: duplicate stage id "${s.id}".`
-    stageIds.add(s.id)
+    const stageId = typeof s.id === "string" ? s.id.trim() : ""
+    if (!stageId) return `Schema error: stages[${i}].id is required.`
+    if (stageIds.has(stageId)) return `Schema error: duplicate stage id "${stageId}".`
+    stageIds.add(stageId)
     if (s.description !== undefined && typeof s.description !== "string") return `Schema error: stages[${i}].description must be a string.`
     if (s.instruction !== undefined && typeof s.instruction !== "string") return `Schema error: stages[${i}].instruction must be a string.`
     if (s.checklist !== undefined) {
@@ -245,7 +251,7 @@ function validateQuestSchema(doc: any): Quest | string {
     if (s.next !== undefined) {
       if (typeof s.next === "string") {
         if (!s.next.trim()) return `Schema error: stages[${i}].next cannot be empty.`
-      } else if (typeof s.next === "object" && !Array.isArray(s.next)) {
+      } else if (s.next && typeof s.next === "object" && !Array.isArray(s.next)) {
         const entries = Object.entries(s.next)
         if (entries.length === 0)
           return `Schema error: stages[${i}].next cannot be empty (no labels).`
@@ -258,7 +264,7 @@ function validateQuestSchema(doc: any): Quest | string {
       }
     }
 
-    stageNexts.push({ id: s.id, rawNext: s.next })
+    stageNexts.push({ id: stageId, rawNext: s.next })
   }
 
   for (const { id, rawNext } of stageNexts) {
@@ -346,6 +352,7 @@ function formatStageMessage(state: QuestState): string {
   // Header
   lines.push("━".repeat(40))
   lines.push(`Quest: ${state.quest.name}`)
+  lines.push(`Status: ${state.status}`)
   if (state.quest.description) lines.push(state.quest.description)
   lines.push("━".repeat(40))
 
@@ -469,37 +476,68 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
   let dispatchedStageMessage: string | null = null
   let stallRetries = 0
   const MAX_STALL_RETRIES = 2
-  /** Per-stage wall-clock timeout. Forces quest completion if quest_advance is not called within the limit. */
-  let stageTimer: ReturnType<typeof setTimeout> | null = null
+  /** Per-stage wall-clock timeout. Leaves an explicit timed_out state for diagnosis. */
+  const stageTimer: { current: ReturnType<typeof setTimeout> | null } = { current: null }
 
   // ── shared infra ──
 
   const toast = (m: string, v = "info", d = 5000) =>
     client.tui.showToast({ body: { message: m, variant: v, duration: d } }).catch(() => {})
 
+  const claimSession = (candidate?: string): string | null => {
+    if (!candidate) return null
+    if (state && state.sessionID !== candidate) {
+      return `Quest "${state.quest.name}" is owned by another session and was not changed.`
+    }
+    sessionID = candidate
+    return null
+  }
+
+  const ensureRunning = (): string | null => {
+    if (!state) return "No active quest. Use quest() to start one."
+    if (state.status === "timed_out") {
+      return `Quest "${state.quest.name}" timed out at stage "${state.currentStageId}". Stop it before starting again.`
+    }
+    if (state.status === "blocked") {
+      return `Quest "${state.quest.name}" is blocked at stage "${state.currentStageId}". Resume it after resolving the routing problem.`
+    }
+    if (state.status !== "running") {
+      return `Quest "${state.quest.name}" is not running (status: ${state.status}).`
+    }
+    return null
+  }
+
   const cancelDwell = () => {
     if (dwellTimer) { clearTimeout(dwellTimer); dwellTimer = null; dwellStartedAt = 0 }
   }
 
   const cancelStageTimeout = () => {
-    if (stageTimer) { clearTimeout(stageTimer); stageTimer = null }
+    if (stageTimer.current) { clearTimeout(stageTimer.current); stageTimer.current = null }
+  }
+
+  const pauseQuest = (status: "paused" | "blocked" | "timed_out") => {
+    if (!state) return
+    state.paused = true
+    state.status = status
+    cancelDwell()
+    cancelStageTimeout()
+    if (hb) { clearInterval(hb); hb = null }
   }
 
   const armStageTimeout = () => {
     cancelStageTimeout()
-    if (!state || state.paused) return
+    if (!state || state.paused || state.status !== "running") return
     const timeoutMs = state.quest.timeout
       ? state.quest.timeout * 1000
       : STAGE_TIMEOUT_MS
-    stageTimer = setTimeout(() => {
-      stageTimer = null
-      if (!state) return
+    const ownerSessionID = state.sessionID
+    stageTimer.current = setTimeout(() => {
+      stageTimer.current = null
+      if (!state || state.sessionID !== ownerSessionID || state.status !== "running" || state.paused) return
       const stageId = state.currentStageId
       const timeoutSec = Math.round(timeoutMs / 1000)
-      toast(`Stage "${stageId}" timed out (${timeoutSec}s without quest_advance) — forcing quest completion`, "error", 8000)
-      const questName = state.quest.name
-      clear()
-      toast(`Quest force-completed: "${questName}" (timeout)`, "warning", 6000)
+      pauseQuest("timed_out")
+      toast(`Stage "${stageId}" timed out (${timeoutSec}s without quest_advance) — quest remains timed_out for diagnosis`, "error", 8000)
     }, timeoutMs)
   }
 
@@ -547,10 +585,7 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
       if (stageNeedsRouting(stage)) {
         const failure = await dispatchStage(stage!, msg)
         if (!failure) return
-        if (state) {
-          state.paused = true
-          cancelDwell()
-        }
+        pauseQuest("blocked")
         toast(`Quest routing blocked (${describeRoute(stage!)}): ${failure}. Quest paused; no fallback to current agent.`, "error", 8000)
         return
       }
@@ -613,12 +648,10 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
         armStageTimeout()
         return
       }
-      if (state) {
-        state.paused = true
-        cancelDwell()
-      }
+      pauseQuest("blocked")
       toast(`Quest routing blocked (${describeRoute(stage)}): ${failure}. Quest paused; no inline fallback.`, "error", 8000)
     } catch (e: any) {
+      pauseQuest("blocked")
       toast(`Quest dispatch error: ${e?.message ?? String(e)}`, "error")
     } finally {
       dispatching = false
@@ -629,6 +662,7 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
     cancelDwell()
     cancelStageTimeout()
     state = null
+    sessionID = null
     inFlight = false
     isIdle = false
     // Drop any queued dispatch: the quest is over (completed, stopped, or a new
@@ -664,17 +698,20 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
     }
   }
 
-  const startQuest = (quest: Quest, input?: string) => {
+  const startQuest = (quest: Quest, input: string | undefined, ownerSessionID: string) => {
     clear()
+    sessionID = ownerSessionID
     state = {
       quest,
       currentStageId: quest.stages[0]!.id,
       startedAt: Date.now(),
       paused: false,
+      status: "running",
+      sessionID: ownerSessionID,
       input: input?.trim() ? input.trim() : undefined,
     }
     refreshHb()
-    toast(`Quest started: "${quest.name}"`, "info", 4000)
+    toast(`Quest started: "${quest.name}" (session ${ownerSessionID})`, "info", 4000)
   }
 
   // ── hooks ──
@@ -698,7 +735,10 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
           input: z.string().optional().describe("The user's task/request this quest should accomplish. Injected into every stage as a 'Task' block."),
         },
         execute: async (args: { file?: string; name?: string; schema?: Record<string, any>; input?: string }, context?: { sessionID?: string; directory?: string }) => {
-          if (context?.sessionID) sessionID = context.sessionID
+          const sessionError = claimSession(context?.sessionID)
+          if (sessionError) return sessionError
+          const ownerSessionID = sessionID
+          if (!ownerSessionID) return "Cannot start quest: session id unavailable."
           const dir = context?.directory
 
           // ── input hint: warn if quest is being started without an explicit input ──
@@ -716,7 +756,7 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
                 : ` No .yaml files in ${questDirs(dir).join(" nor ")} — is the session rooted at the right project?`
               return result + hint
             }
-            startQuest(result.quest, args.input)
+            startQuest(result.quest, args.input, ownerSessionID)
             return `Quest "${result.quest.name}" loaded from ${result.path}.\n\n${await deliverStage()}`
           }
 
@@ -724,7 +764,7 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
           if (args.name !== undefined && args.name !== "") {
             const result = resolveQuestByName(args.name.trim(), dir)
             if (typeof result === "string") return result
-            startQuest(result.quest, args.input)
+            startQuest(result.quest, args.input, ownerSessionID)
             return `Quest "${result.quest.name}" loaded from ${result.path}.\n\n${await deliverStage()}`
           }
 
@@ -732,7 +772,7 @@ export const QuestPlugin: Plugin = async ({ client }: any) => {
           if (args.schema !== undefined) {
             const result = validateQuestSchema(args.schema)
             if (typeof result === "string") return result
-            startQuest(result, args.input)
+            startQuest(result, args.input, ownerSessionID)
             return `Quest "${result.name}" created.\n\n${await deliverStage()}`
           }
 
@@ -766,14 +806,11 @@ Active quest commands: /quest [status|pause|resume|stop]`
           stage: z.string().describe("Stage id to advance to. Use 'done' on final stage."),
         },
         execute: async (args: { stage: string }, context?: { sessionID?: string }) => {
-          if (context?.sessionID) sessionID = context.sessionID
+          const sessionError = claimSession(context?.sessionID)
+          if (sessionError) return sessionError
+          const runningError = ensureRunning()
+          if (runningError) return runningError
           if (!state) return "No active quest. Use quest() to start one."
-
-          // ── Clear stall watchdog: quest_advance was called, so the stage ran ──
-          dispatchedStageId = null
-          dispatchedStageMessage = null
-          stallRetries = 0
-          cancelStageTimeout()
 
           const target = args.stage.trim()
           if (!isValidTransition(state, target)) {
@@ -781,7 +818,14 @@ Active quest commands: /quest [status|pause|resume|stop]`
             return `Cannot advance to "${target}". Expected: ${valid.map(v => `"${v}"`).join(" or ")}.`
           }
 
+          // ── Clear stall watchdog: quest_advance was called, so the stage ran ──
+          dispatchedStageId = null
+          dispatchedStageMessage = null
+          stallRetries = 0
+          cancelStageTimeout()
+
           if (target === "done") {
+            state.status = "completed"
             const msg = formatCompleteMessage(state)
             const questName = state.quest.name
             clear()
@@ -802,7 +846,10 @@ Active quest commands: /quest [status|pause|resume|stop]`
 
       if (t === "message.updated") {
         const sid = p?.info?.sessionID
-        if (typeof sid === "string" && sid) sessionID = sid
+        if (typeof sid === "string" && sid) {
+          if (state && state.sessionID !== sid) return
+          sessionID = sid
+        }
         if (p?.info?.role === "assistant") {
           isIdle = false
           cancelDwell()
@@ -811,6 +858,11 @@ Active quest commands: /quest [status|pause|resume|stop]`
       }
 
       if (t === "session.idle") {
+        const sid = p?.sessionID ?? p?.info?.sessionID
+        if (typeof sid === "string" && sid) {
+          if (state && state.sessionID !== sid) return
+          sessionID = sid
+        }
         isIdle = true
         inFlight = false
 
@@ -836,19 +888,13 @@ Active quest commands: /quest [status|pause|resume|stop]`
               dispatchedStageMessage = msg
             } catch (e: any) {
               toast(`Routed stage retry failed: ${e?.message ?? String(e)}`, "error", 8000)
-              if (state) {
-                state.paused = true
-                cancelDwell()
-              }
+              pauseQuest("blocked")
               stallRetries = 0
             }
           } else {
             toast(`Stage "${stageId}" stalled ${MAX_STALL_RETRIES}x — quest paused; no TUI fallback`, "error", 8000)
             stallRetries = 0
-            if (state) {
-              state.paused = true
-              cancelDwell()
-            }
+            pauseQuest("blocked")
           }
           return
         }
@@ -866,10 +912,11 @@ Active quest commands: /quest [status|pause|resume|stop]`
       }
 
       if (t === "session.created") {
-        if (state) {
+        const sid = p?.sessionID ?? p?.info?.sessionID
+        if (state && typeof sid === "string" && sid === state.sessionID) {
           const name = state.quest.name
           clear()
-          toast(`Quest auto-stopped (new session) — "${name}"`)
+          toast(`Quest auto-stopped (owning session recreated) — "${name}"`)
         }
       }
     },
@@ -900,19 +947,22 @@ Active quest commands: /quest [status|pause|resume|stop]`
         } else if (state.paused) {
           toast("Quest is already paused.", "error")
         } else {
-          state.paused = true
-          cancelDwell()
-          if (hb) { clearInterval(hb); hb = null }
+          pauseQuest("paused")
           toast(`Quest paused — "${state.quest.name}" at stage ${state.currentStageId}`)
         }
       } else if (args === "resume") {
         if (!state) {
           toast("No quest to resume.", "error")
+        } else if (state.status === "timed_out") {
+          toast(`Quest "${state.quest.name}" timed out and cannot resume. Stop it and start a new run.`, "error", 8000)
         } else if (!state.paused) {
           toast("Quest is not paused.", "error")
         } else {
           state.paused = false
+          state.status = "running"
           refreshHb()
+          armStageTimeout()
+          startDwell()
           toast(`Quest resumed — "${state.quest.name}" at stage ${state.currentStageId}`)
         }
       } else {

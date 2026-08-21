@@ -272,6 +272,20 @@ function Test-QuestStructure {
     }
 }
 
+$questValidator = Join-Path $cfgRoot 'scripts\validate-quests.js'
+if (Test-Path $questValidator) {
+    try {
+        $validatorOutput = @(& node $questValidator "--dir=$questDir" 2>&1)
+        $validatorExit = $LASTEXITCODE
+        $validatorDetail = (($validatorOutput -join ' ') -replace '\s+', ' ').Trim()
+        Test-Item 'quests shared schema validator' ($validatorExit -eq 0) $validatorDetail
+    } catch {
+        Test-Item 'quests shared schema validator' $false $_.Exception.Message
+    }
+} else {
+    Test-Item 'quests shared schema validator' $false $questValidator
+}
+
 foreach ($qf in $questFiles) {
     Test-QuestStructure -QuestFile $qf
     $refs = @(

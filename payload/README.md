@@ -3,7 +3,7 @@
 Providers, agentes, MCPs, plugins, skills e quests que o opencode carrega de
 `~/.config/opencode` — funciona em qualquer projeto sem precisar config local.
 
-Versionado em 2026-08-18. Templates com `{{nodeModules}}`, `{{userHome}}` e
+Versionado em 2026-08-21. Templates com `{{nodeModules}}`, `{{userHome}}` e
 `{{userAgents}}` sao resolvidos na instalacao, em
 [`scripts/Install-Orchestration.ps1:Resolve-Template`](../../scripts/Install-Orchestration.ps1).
 
@@ -86,6 +86,42 @@ Para adicionar um placeholder novo:
 2. Adicionar entrada em `vars` antes do bloco "Payload".
 3. Usar `{{nome}}` no template.
 
+## Estado atual da orquestracao
+
+O plugin de quests mantém um único runtime em memória por processo, com
+ownership explícito por `sessionID`. Operações e eventos de outras sessões são
+rejeitados ou ignorados em modo fail-closed. Isso impede corrupção entre
+sessões, mas não habilita quests concorrentes no mesmo processo; use processos
+opencode separados para paralelismo.
+
+Estados possíveis: `running`, `paused`, `blocked`, `timed_out` e `completed`.
+Timeouts e falhas de roteamento permanecem visíveis para diagnóstico, em vez
+de completar ou limpar a quest silenciosamente. Estágio roteado nunca cai para
+o agente atual quando o despacho falha.
+
+Agentes `plan`, `review` e `explore` têm permissões read-only no template:
+`edit`, `bash` e `task` são negados; ferramentas de leitura permanecem
+permitidas.
+
+## Validação e instalação
+
+O payload é fonte de verdade, mas a instalação global exige ação explícita:
+`postinstall` instala dependências sem alterar a configuração global; use
+`npm run install:force` ou `opencode-orchestration --force` para efetivar.
+
+Checks disponíveis no repositório:
+
+```powershell
+npm run validate:quests
+npm run validate:quests -- --json
+npm run doctor -- --json --skip-opencode
+npm run sync:check
+```
+
+`validate:quests` valida quests YAML. `doctor` produz diagnósticos estruturados
+para config, placeholders, quests, lockfile e MCPs. `sync:check` apenas compara
+o payload com o destino instalado e retorna código `1` quando há drift.
+
 ## Estado medido da orquestracao
 
 Medido em 2026-08-18 pelas quests `routing-probe` e `override-probe`, com
@@ -99,15 +135,15 @@ autorrelato do modelo:
   permitiu em `finops-task` trocar de modelo mantendo `agent: build` e suas
   ferramentas de escrita.
 
-Dois defeitos conhecidos do plugin, ambos medidos e nao corrigidos:
+Limitações atuais e histórico relevante:
 
-- **Estado da quest e global ao processo, nao por sessao.** Duas quests
-  concorrentes se dividem entre sessoes — uma fica com o primeiro estagio, outra
-  o segundo. Rode uma quest por vez.
-- **Em execucao headless o estagio diferido as vezes se perde** (~1 em 3
-  sessoes), porque o dispatch acontece no `session.idle` e o cliente
-  `opencode run` pode sair antes. Em TUI persistente nao aparece.
-
-A mitigacao esta escrita no contexto das quests: cada estagio registra no
-proprio relatorio o que o proximo precisa, para que estagio perdido apareca como
-falha explicita em vez de o modelo seguinte adivinhar.
+- **Execução headless.** O estágio diferido pode se perder (~1 em 3 nas
+  medições históricas) porque o dispatch acontece em `session.idle` e o
+  cliente `opencode run` pode sair antes. TUI persistente ou `--attach` com
+  `opencode serve` é preferível.
+- **Uma quest ativa por processo.** Ownership por `sessionID` impede que outra
+  sessão corrompa ou assuma a quest, mas não fornece um mapa de runtimes
+  concorrentes. Use processos separados para paralelismo.
+- **Medições históricas.** Os testes de roteamento e contexto foram realizados
+  antes do hardening de sessão; consulte `docs/MEASUREMENTS.md` para separar
+  comportamento medido de comportamento atual.

@@ -29,3 +29,6 @@ logs/
 .env
 .env.*
 secrets.json
+
+# Local npm dependencies used for validation; never part of the payload.
+node_modules/

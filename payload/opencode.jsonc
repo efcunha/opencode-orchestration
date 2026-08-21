@@ -33,7 +33,17 @@
     "plan": {
       "model": "{{modelAgentPlan}}",
       "temperature": {{tempAgentPlan}},
-      "description": "{{descAgentPlan}}"
+      "description": "{{descAgentPlan}}",
+      "permission": {
+        "edit": "deny",
+        "bash": "deny",
+        "task": "deny",
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "lsp": "allow"
+      }
     },
     "build": {
       "model": "{{modelAgentBuild}}",
@@ -43,7 +53,17 @@
     "review": {
       "model": "{{modelAgentReview}}",
       "temperature": {{tempAgentReview}},
-      "description": "{{descAgentReview}}"
+      "description": "{{descAgentReview}}",
+      "permission": {
+        "edit": "deny",
+        "bash": "deny",
+        "task": "deny",
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "lsp": "allow"
+      }
     },
     "bugfix": {
       "model": "{{modelAgentBugfix}}",
@@ -58,7 +78,17 @@
     "explore": {
       "model": "{{modelAgentExplore}}",
       "temperature": {{tempAgentExplore}},
-      "description": "{{descAgentExplore}}"
+      "description": "{{descAgentExplore}}",
+      "permission": {
+        "edit": "deny",
+        "bash": "deny",
+        "task": "deny",
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "lsp": "allow"
+      }
     }
   },
 

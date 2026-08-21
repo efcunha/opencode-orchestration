@@ -111,8 +111,10 @@ A quest NAO e uma chamada sincrona. O fluxo e:
 | Inicio | `Quest started: "Nome"` |
 | A cada ~10s (heartbeat) | `Quest: Nome \| Stage: id (i/n) \| elapsed \| status` |
 | Dwell reminder (sem output por ~10s) | Re-dispara o estagio atual |
-| Plano stall (Plan Mode) | `Stage "X" stalled (Plan Mode?) — retry 1/2 on current agent` |
-| Stall apos 2 retries | `Stage "X" stalled 2x — forcing TUI delivery` |
+| Plano stall (Plan Mode) | `Stage "X" stalled (Plan Mode?) — retry 1/2 on routed agent` |
+| Stall apos 2 retries | `Stage "X" stalled 2x — quest paused; no TUI fallback` |
+| Routing bloqueado | `Quest routing blocked ... Quest paused` |
+| Timeout | `Stage "X" timed out (300s without quest_advance) — quest remains timed_out for diagnosis` |
 | Final | `Quest complete: "Nome"` |
 | `/quest pause` | `Quest paused — "Nome" at stage X` |
 | `/quest resume` | `Quest resumed — "Nome" at stage X` |
@@ -349,15 +351,21 @@ os resultados de roteamento.
 
 ## 6. Regras operacionais
 
-### Uma quest por vez
+### Uma quest ativa por processo
 
-O estado da quest vive em **memoria do processo** do opencode, nao por
-sessao. Duas quests concorrentes se dividem entre sessoes — uma fica
-com o primeiro estagio, outra com o segundo. A sessao orfã reporta
-`NO_CONTEXT` **corretamente** — ela nunca teve o estagio anterior.
+O plugin mantém um runtime de quest por processo e registra o `sessionID`
+proprietário. Operações e eventos de outra sessão são rejeitados ou ignorados
+em modo fail-closed; eles não podem assumir nem corromper a quest ativa.
 
-Regra: **uma quest por vez**. Se voce precisa paralelizar, abra dois
-processos opencode separados.
+Isso ainda não é um scheduler de quests concorrentes: uma sessão pode ter uma
+quest ativa por vez. Para paralelizar, use processos opencode separados. Uma
+nova quest na mesma sessão substitui a anterior; uma sessão diferente recebe
+erro de ownership.
+
+Os estados são `running`, `paused`, `blocked`, `timed_out` e `completed`. Quest
+`timed_out` permanece disponível para diagnóstico e não pode ser retomada;
+pare-a e inicie uma nova depois de investigar. Quest `blocked` pode ser
+retomada após corrigir o problema de roteamento.
 
 ### TUI em Build antes de disparar
 
@@ -369,10 +377,11 @@ Se voce disparar uma quest com o TUI em **Plan**, o estagio roteado
 recebe a instrucao mas nao pode chamar ferramentas, em particular
 `quest_advance`. A quest trava em silencio.
 
-**Auto-recovery existe** desde 2026-08-19: o plugin detecta o stall e
-re-despacha ate 2 vezes, caindo para TUI injection no fim. Mas isso
-introduz delay e toast de aviso. Para evitar: troque para Build (Tab)
-antes de digitar `quest(...)`. Detalhe tecnico em
+**Auto-recovery existe**: o plugin detecta o stall e re-despacha até 2 vezes
+usando o mesmo `agent`/`model` declarado. Se o problema persistir, a quest
+fica `blocked` e informa o bloqueio; não há fallback silencioso para injeção
+TUI nem execução no agente atual. Para evitar o atraso, troque para Build (Tab)
+antes de digitar `quest(...)`. Detalhe técnico em
 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) "O TUI travou em Plan Mode".
 
 ### Slash command vs tool
@@ -380,24 +389,52 @@ antes de digitar `quest(...)`. Detalhe tecnico em
 - `quest(...)` no chat = **iniciar** uma quest. Tool.
 - `/quest ...` no chat = **gerenciar** a quest ativa. Slash command.
 
-Nao confunda: `/quest status` nao inicia nada, so mostra status. E
-`quest(file: "...")` nao pausa nem para nada — se ja existe quest
-ativa, ela substitui.
+Não confunda: `/quest status` não inicia nada, só mostra status. E
+`quest(file: "...")` inicia ou substitui a quest ativa **na mesma sessão**;
+se outra sessão tentar operar a quest atual, o plugin rejeita a operação por
+ownership.
 
 ### Quando desconfiar
 
-- **Toast de aviso "stalled"**: o plugin esta tentando recuperar. Espere
-  ~10s. Se cair no fallback de TUI injection, a quest continua com a
-  ressalva de que o estagio rodou sem ferramentas.
-- **Sessao para depois de um estagio com "queued" no output**: provavel
+- **Toast de aviso "stalled"**: o plugin está tentando recuperar usando o
+  mesmo agente/modelo declarado. Espere os retries. Se falhar, a quest fica
+  `blocked`; corrija o roteamento antes de `/quest resume`.
+- **Toast de timeout**: a quest fica `timed_out` para diagnóstico. Pare-a e
+  inicie uma nova execução após investigar; ela não é force-completada.
+- **Sessão para depois de um estágio com "queued" no output**: provável
   perda de despacho headless. Ver [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md).
-- **Dois estagios em sessoes diferentes**: estado global atropelado.
-  Pare a segunda, deixe a primeira terminar.
-- **Heartbeat para de aparecer por >2 minutos**: provavelmente travou.
-  Tente `/quest status` para ver onde esta; `/quest stop` + redispatch
-  e a saida pragmatica.
+- **Operação rejeitada por ownership**: outra sessão tentou modificar a quest
+  ativa. Use a sessão proprietária ou pare a quest antes de iniciar outra.
+- **Heartbeat para de aparecer por >2 minutos**: provavelmente travou. Tente
+  `/quest status`; depois use `/quest stop` e redispare de forma controlada.
 
-## 7. Workflow tipico
+## 7. Validação e diagnóstico
+
+Antes de instalar ou publicar alterações no payload:
+
+```powershell
+npm run validate:quests
+npm run validate:quests -- --json
+npm run doctor -- --json --skip-opencode
+npm run verify
+```
+
+`validate:quests` valida quests em `payload/agents` por padrão. Para validar
+quests de outro diretório, use `node scripts/validate-quests.js --dir=<path>`.
+`doctor` verifica a instalação global sem modificar arquivos. `verify` executa
+a verificação PowerShell completa, incluindo o validador compartilhado.
+
+Para conferir se o destino global está atualizado:
+
+```powershell
+npm run sync:check
+```
+
+Código `1` significa drift esperado quando o payload local ainda não foi
+instalado com `Install-Orchestration.ps1 -Force`. O comando de sync apenas
+compara; não sobrescreve a configuração global.
+
+## 8. Workflow típico
 
 1. Abre o TUI: `opencode`.
 2. Confirma que esta em Build (rodape).

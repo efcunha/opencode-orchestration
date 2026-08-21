@@ -97,17 +97,20 @@ isso?".
 **Quest partida entre sessões.** Disparei runs sobrepostos e uma quest se
 dividiu: `ses_fe9bb28ac` recebeu só o `probe-a`, `ses_fe9bb05dd` só o `probe-b`.
 O `NO_CONTEXT` reportado pela segunda estava **correto** — aquela sessão nunca
-teve o estágio A. A causa é o estado da quest ser global ao processo. Não conta
-como falha de contexto.
+teve o estágio A. A causa histórica foi o estado da quest ser global sem ownership por sessão. O plugin atual registra `sessionID` e rejeita operações de outra sessão; um único processo ainda suporta uma quest ativa por vez, mas não divide mais o runtime silenciosamente.
 
 **Estágio perdido em headless.** Quatro sessões ficaram só com o `probe-a`
 (`fe9bb28ac`, `fe9b8897c`, `fe9ca1636`, `fe9ca47b2`). É o custo do despacho
 diferido no `session.idle`: o cliente `opencode run` sai antes de o evento
 disparar. Cerca de 1 em 3 em headless; não observado em TUI persistente.
+Essa limitação ainda existe, embora falhas de despacho agora preservem a quest
+como `blocked`.
 
-**Entrega duplicada.** Algumas sessões receberam o mesmo estágio duas vezes
+**Entrega duplicada — comportamento histórico.** Algumas sessões receberam o mesmo estágio duas vezes
 (`fe9bc589d` com `probe-b` duplicado, `fe9b8897c` com `probe-a` duplicado),
-apesar do guard de `cancelDwell`. Não investigado a fundo.
+apesar do guard de `cancelDwell`. O watchdog atual limita retries e não faz
+fallback silencioso, mas a medição histórica não prova ausência de duplicação
+em todos os ambientes.
 
 **Serialização malformada de tool call no M3.** Saídas do MiniMax M3 às vezes
 trazem artefatos de template tipo `]<]minimax[>[<tool_call>`. O `quest_advance`
@@ -137,6 +140,20 @@ primeira chamada, em silêncio.
 Corrigido para `deepseek/deepseek-v4-flash`. E a lição virou verificação
 automática: `Test-Orchestration.ps1` agora confere **toda** referência de modelo
 contra a lista que o opencode resolve.
+
+## Validação atual do projeto
+
+Além das medições históricas acima, a revisão atual foi validada com:
+
+- `npm run validate:quests`: 4 de 4 quests válidas.
+- `npm run validate:quests -- --json`: diagnóstico estruturado sem falhas.
+- `npm run doctor -- --json --skip-opencode`: configuração, placeholders,
+  quests, lockfile e binários MCP verificados.
+- `esbuild payload/plugins/opencode-quests.ts`: TypeScript compilado sem erro.
+- Parser do PowerShell: scripts de verificação e instalação válidos.
+
+Esses checks são validação estática e de ambiente. Não substituem um teste de
+roteamento ponta a ponta contra cada provider.
 
 ## Reproduzir
 

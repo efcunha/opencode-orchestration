@@ -15,8 +15,8 @@ opencode.jsonc (global, ~/.config/opencode)
     model / small_model  ->  defaults
          |
          v
-opencode.json (per project)
-    mcp, lsp, plugin, skills  ->  only what is local
+opencode.json (per project, optional)
+    local overrides for mcp, lsp, plugin, skills
          |
          v
 quest YAML (.agents/ in project, or agents/ globally)
@@ -93,11 +93,14 @@ the body, using the `sessionID` obtained from `ToolContext`. Dispatch is
 after the current turn closes.
 
 That deferral explains the headless limitation: `opencode run` can exit before
-`session.idle`, losing the queued stage in some sessions. It does not occur in
+`session.idle`, losing the queued stage in some sessions. It is less likely in
 persistent TUI. The watchdog detects a stage that ended without
-`quest_advance`, tries up to two redispatches, and then uses TUI injection.
-`DWELL_MS` and `HEARTBEAT_MS` are currently 10 seconds. Backtick-wrapped text
-is transported literally; the plugin does not execute Markdown as shell.
+`quest_advance`, tries up to two redispatches on the declared `agent`/`model`,
+and then marks the quest `blocked` if dispatch still fails — with no silent
+fallback to the TUI's current mode. `DWELL_MS` and `HEARTBEAT_MS` are currently
+10 seconds. Each stage also has a 300-second default timeout (configurable in
+YAML); timeout preserves the quest as `timed_out` for diagnosis. Backtick-wrapped
+text is transported literally; the plugin does not execute Markdown as shell.
 
 ### Context crosses the handoff
 
@@ -141,23 +144,47 @@ Practical consequence: to change the plugin, edit
 only needed to develop the plugin from the upstream; for use, this repo is
 enough.
 
-## Quest state is process-global
+## Quest state and session isolation
 
-The plugin keeps quest state in process memory, not per session. Two
-concurrent quests get split: one session receives the first stage, another
-the second. It was observed with real sessions, and the `NO_CONTEXT` that the
-orphan session reported was **correct** — that session in fact never had the
-previous stage.
+The plugin keeps one quest runtime in process memory, but that runtime now
+records its owning `sessionID`. Operations (`quest_advance`) and events from
+another session are rejected or ignored fail-closed. A new quest in the same
+session replaces the previous one; a different session cannot take over the
+active quest.
 
-Operational rule: one quest at a time.
+This is **not** a map of concurrent runtimes: one process still supports one
+active quest at a time. To parallelize, use separate opencode processes. The
+current protection prevents concurrent sessions from corrupting shared state,
+but it does not turn one process into a multi-quest scheduler.
 
-## Mitigation that survives both defects
+Observable states are `running`, `paused`, `blocked`, `timed_out`, and
+`completed`. Timeout, dispatch errors, and stalls preserve diagnostic state
+instead of silently clearing or completing the quest. A `timed_out` quest must
+be stopped and started again after investigation; a `blocked` quest can be
+resumed after fixing the routing problem.
+
+## Validation and diagnostics
+
+Before running global quests:
+
+```powershell
+npm run validate:quests
+npm run validate:quests -- --json
+npm run doctor -- --json --skip-opencode
+```
+
+`validate:quests` validates YAML, stage IDs, model references, and transition
+targets. `doctor` validates rendered configuration, placeholders, quests,
+lockfile, and MCP binaries. The PowerShell verifier also calls the shared
+validator for the installed quest directory.
+
+## Mitigation that survives lost stages
 
 Each stage records in its own report what the next one needs. This is not
-protection against context loss — context survives. It is protection against
-**stage loss**: if `build` starts without seeing the reproduction `plan`
-should have written, that signals a lost stage, and the instruction tells it
-to stop and report instead of guessing the defect.
+protection against context loss — context survives when the session is the
+same. It is protection against **stage loss**: if `build` starts without
+seeing the reproduction `plan` should have written, that signals a lost stage,
+and the instruction tells it to stop and report instead of guessing the defect.
 
 The cost is one extra sentence in `plan`'s report. Worth it, because the
 alternative is a stage working from an invented premise.

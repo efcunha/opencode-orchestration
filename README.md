@@ -24,18 +24,21 @@ cd opencode-orchestration
 npm install -g .
 ```
 
-O comando faz, em ordem:
+O comando instala dependencias npm, incluindo MCPs e a dependencia opcional
+`opencode-rag-plugin`. O `postinstall` executa `scripts/install.js` em modo
+seguro: nao altera configuracao global do OpenCode nem chama PowerShell.
 
-1. Instala as dependencias MCP declaradas em `dependencies` do `package.json`
-   (`@modelcontextprotocol/server-memory`, `server-sequential-thinking`) e as
-   `optionalDependencies` (hoje: `opencode-rag-plugin`, RAG semantico
-   local-first — Ollama + `nomic-embed-text` sao auto-instalados).
-2. Dispara o `postinstall`, que executa `scripts/install.js`.
-3. `install.js` detecta `npm root -g`, `$USERPROFILE` e `$HOME`, e chama o
-   `Install-Orchestration.ps1 -Force`.
-4. O PowerShell renderiza o template `opencode.jsonc` com os paths locais,
-   instala MCPs npm faltantes, copia o payload para `~/.config/opencode` e
-   roda `Test-Orchestration.ps1`.
+Para efetivar instalacao global do payload, rode explicitamente:
+
+```bash
+npm run install:force
+# ou, depois de instalar globalmente:
+opencode-orchestration --force
+```
+
+A instalacao efetiva detecta `npm root -g`, `$USERPROFILE` e `$HOME`, e o
+PowerShell renderiza o template `opencode.jsonc`, instala MCPs faltantes,
+copia o payload para `~/.config/opencode` e roda `Test-Orchestration.ps1`.
 
 Para instalar **localmente** (sem `-g`):
 
@@ -188,12 +191,22 @@ mensagem), nao por autorrelato do modelo:
 Metodo, sessoes e os falsos negativos que o instrumento produzia antes de ser
 corrigido: [`docs/MEASUREMENTS.md`](docs/MEASUREMENTS.md).
 
-Limitações conhecidas do plugin de quests — estado global ao processo e
-possível perda de despacho em headless — estão em
-[`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md). O watchdog recupera
-estágios travados em Plan Mode; o modo TUI persistente continua recomendado.
-Texto entre crases em instruções é preservado literalmente e nunca é executado
-pelo plugin.
+Limitações atuais do plugin de quests — uma quest ativa por processo e possível
+perda de despacho em headless — estão em
+[`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md). Ownership por `sessionID`
+impede que outra sessão assuma ou corrompa a quest, mas não cria runtimes
+concorrentes. O watchdog recupera estágios travados em Plan Mode e marca a
+quest como `blocked` quando não consegue despachar; timeout preserva o estado
+como `timed_out`. O modo TUI persistente continua recomendado. Texto entre
+crases em instruções é preservado literalmente e nunca é executado pelo plugin.
+
+Checks rápidos:
+
+```powershell
+npm run validate:quests
+npm run doctor -- --json --skip-opencode
+npm run sync:check
+```
 
 ## Leitura
 

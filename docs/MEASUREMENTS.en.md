@@ -100,18 +100,20 @@ answer than "should you be seeing this?".
 **Quest split between sessions.** I fired overlapping runs and one quest got
 split: `ses_fe9bb28ac` received only `probe-a`, `ses_fe9bb05dd` only
 `probe-b`. The `NO_CONTEXT` reported by the latter was **correct** — that
-session never had stage A. The cause is quest state being process-global. It
-does not count as a context failure.
+session never had stage A. The historical cause was global quest state without session ownership. The current plugin records `sessionID` and rejects operations from another session; one process still supports one active quest, but it no longer silently splits the runtime.
 
 **Stage lost in headless.** Four sessions ended up with only `probe-a`
 (`fe9bb28ac`, `fe9b8897c`, `fe9ca1636`, `fe9ca47b2`). It is the cost of the
 dispatch deferral on `session.idle`: the `opencode run` client exits before
-the event fires. Roughly 1 in 3 in headless; not observed in a persistent
-TUI.
+the event fires. Roughly 1 in 3 in headless; not observed in a persistent TUI.
+This limitation still exists, although dispatch failures now preserve the
+quest as `blocked`.
 
-**Duplicate delivery.** Some sessions received the same stage twice
+**Duplicate delivery — historical behavior.** Some sessions received the same stage twice
 (`fe9bc589d` with `probe-b` duplicated, `fe9b8897c` with `probe-a`
-duplicated), despite the `cancelDwell` guard. Not investigated in depth.
+duplicated), despite the `cancelDwell` guard. The current watchdog bounds retries and has
+no silent fallback, but the historical measurement does not prove duplication
+is impossible in every environment.
 
 **Malformed tool call serialization in M3.** MiniMax M3 outputs sometimes
 carry template artifacts like `]<]minimax[>[<tool_call>`. `quest_advance`
@@ -141,6 +143,22 @@ the first call, silently.
 Fixed to `deepseek/deepseek-v4-flash`. And the lesson became automatic
 verification: `Test-Orchestration.ps1` now checks **every** model reference
 against the list opencode resolves.
+
+## Current project validation
+
+In addition to the historical measurements above, the current revision was
+validated with:
+
+- `npm run validate:quests`: 4 of 4 quests valid.
+- `npm run validate:quests -- --json`: structured diagnostics without failures.
+- `npm run doctor -- --json --skip-opencode`: configuration, placeholders,
+  quests, lockfile, and MCP binaries checked.
+- `esbuild payload/plugins/opencode-quests.ts`: TypeScript bundled without
+  errors.
+- PowerShell parser: verification and installation scripts valid.
+
+These are static and environment checks. They do not replace an end-to-end
+routing test against each provider.
 
 ## Reproduce
 

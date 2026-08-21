@@ -11,12 +11,12 @@
  *      `payload-symlinks.template.json`, copia o payload para TargetRoot e
  *      roda Test-Orchestration.ps1 no fim.
  *
- * Em modo `--postinstall` (chamado pelo npm apos instalar deps), NAO escreve
- * sem confirmacao: aborta se alguma condicao for infactivel. Isso deixa
- * `npm install -g .` numa maquina sem opencode Powershell utilizavel sem efeito.
+ * Em modo `--postinstall` (chamado pelo npm apos instalar deps), NAO chama
+ * PowerShell e NAO escreve configuracao global. A instalacao efetiva exige
+ * uma acao explicita com `--force`.
  *
- * Em modo `--force` ou sem flag, chama `Install-Orchestration.ps1 -Force`
- * (sem -Force o script apenas simula, sem escrever nada).
+ * Em modo `--force`, chama `Install-Orchestration.ps1 -Force`. Sem `--force`,
+ * o script apenas simula, sem escrever nada.
  */
 
 // Silence Node 22+ deprecation warnings raised by spawnSync(.cmd, shell:true)
@@ -34,7 +34,7 @@ const tty = require('node:tty');
 const args = new Set(process.argv.slice(2));
 const isPostinstall = args.has('--postinstall');
 const isUninstall   = args.has('--uninstall');
-const isForce       = args.has('--force') || isPostinstall;
+const isForce       = args.has('--force');
 
 const repoRoot  = path.resolve(__dirname, '..');
 const psScript  = path.join(repoRoot, 'scripts', 'Install-Orchestration.ps1');
@@ -85,12 +85,9 @@ function findPwsh() {
 
 function maybeRunWizard() {
     const configPath = path.join(repoRoot, 'config', 'llm-providers.json');
-    const force = args.has('--wizard');
-    if (fs.existsSync(configPath) && !force) return false;
+    if (!args.has('--wizard')) return false;
     if (!process.stdin.isTTY) {
-        if (force) {
-            warn('wizard precisa de TTY (stdin nao e terminal interativo).');
-        }
+        warn('wizard precisa de TTY (stdin nao e terminal interativo).');
         log('[opencode-orchestration] stdin is not a TTY — interactive wizard skipped.');
         log('  Using defaults from scripts/llm-defaults.json.');
         log('  To configure providers interactively later:');
@@ -98,17 +95,11 @@ function maybeRunWizard() {
         log('  Or copy scripts/llm-providers.example.json to config/llm-providers.json and edit.');
         return false;
     }
-    if (!force && !args.has('--postinstall')) return false;
     const wizardScript = path.join(repoRoot, 'scripts', 'wizard.js');
     if (!fs.existsSync(wizardScript)) return false;
-    const args2 = force ? [wizardScript, '--output', configPath, '--force'] : [wizardScript, '--output', configPath];
+    const args2 = [wizardScript, '--output', configPath, '--force'];
     log('');
-    if (force) {
-        log('[opencode-orchestration] rodando wizard manualmente (--wizard).');
-    } else {
-        log('[opencode-orchestration] nenhum config/llm-providers.json encontrado. Rodando wizard interativo...');
-        log('  Para pular (instalacao silenciosa), copie scripts/llm-providers.example.json para config/llm-providers.json antes.');
-    }
+    log('[opencode-orchestration] rodando wizard manualmente (--wizard).');
     log('');
     const r = spawnSync(process.execPath, args2, { stdio: 'inherit' });
     if (r.status !== 0) {
@@ -134,6 +125,12 @@ function runPowerShell(cmd, argsList, env) {
 }
 
 async function main() {
+    if (isPostinstall && !isForce) {
+        log('[opencode-orchestration] postinstall: dependencies installed; global OpenCode configuration was not changed.');
+        log('  Run npm run install:force when you explicitly want to install the payload.');
+        return;
+    }
+
     maybeRunWizard();
 
     const nodeModules = detectNpmRootGlobal();

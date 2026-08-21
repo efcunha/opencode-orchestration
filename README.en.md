@@ -25,18 +25,21 @@ cd opencode-orchestration
 npm install -g .
 ```
 
-The command does, in order:
+The command installs npm dependencies, including the MCP servers and optional
+`opencode-rag-plugin`. Its `postinstall` runs `scripts/install.js` in safe
+mode: it does not change global OpenCode configuration or invoke PowerShell.
 
-1. Installs the MCP dependencies declared in `dependencies` of `package.json`
-   (`@modelcontextprotocol/server-memory`, `server-sequential-thinking`) and
-   the `optionalDependencies` (today: `opencode-rag-plugin`, a local-first
-   semantic RAG tool — Ollama + `nomic-embed-text` are auto-installed).
-2. Triggers `postinstall`, which runs `scripts/install.js`.
-3. `install.js` detects `npm root -g`, `$USERPROFILE` and `$HOME`, and calls
-   `Install-Orchestration.ps1 -Force`.
-4. PowerShell renders the `opencode.jsonc` template with the local paths,
-   installs missing MCP npm packages, copies the payload to
-   `~/.config/opencode`, and runs `Test-Orchestration.ps1`.
+To explicitly install the global payload, run:
+
+```bash
+npm run install:force
+# or, after a global install:
+opencode-orchestration --force
+```
+
+The effective install detects `npm root -g`, `$USERPROFILE`, and `$HOME`, then
+PowerShell renders `opencode.jsonc`, installs missing MCPs, copies the payload
+to `~/.config/opencode`, and runs `Test-Orchestration.ps1`.
 
 To install **locally** (without `-g`):
 
@@ -190,12 +193,23 @@ not by model self-report:
 Method, sessions and the false negatives the instrument produced before being
 fixed: [`docs/MEASUREMENTS.md`](docs/MEASUREMENTS.md).
 
-Known quest-plugin limitations — process-global state and possible headless
-dispatch loss — are covered in
-[`docs/TROUBLESHOOTING.en.md`](docs/TROUBLESHOOTING.en.md). The watchdog
-recovers stages stalled in Plan Mode; persistent TUI remains recommended.
+Current quest-plugin limitations — one active quest per process and possible
+headless dispatch loss — are covered in
+[`docs/TROUBLESHOOTING.en.md`](docs/TROUBLESHOOTING.en.md). `sessionID`
+ownership prevents another session from taking over or corrupting the quest,
+but does not create concurrent runtimes. The watchdog recovers stages stalled
+in Plan Mode and marks the quest `blocked` when dispatch cannot recover;
+timeouts preserve `timed_out` state. Persistent TUI remains recommended.
 Backtick-wrapped text in instructions is preserved literally and is never
 executed by the plugin.
+
+Quick checks:
+
+```powershell
+npm run validate:quests
+npm run doctor -- --json --skip-opencode
+npm run sync:check
+```
 
 ## Reading
 

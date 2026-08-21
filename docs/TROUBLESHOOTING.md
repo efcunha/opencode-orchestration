@@ -1,8 +1,16 @@
 # Troubleshooting
 
-Modos de falha observados, com o sintoma primeiro. Comece rodando
-`.\scripts\Test-Orchestration.ps1` — ele cobre a maioria dos casos abaixo e
-aponta o item exato.
+Modos de falha observados, com o sintoma primeiro. Comece pelos checks locais:
+
+```powershell
+npm run validate:quests
+npm run doctor -- --json --skip-opencode
+.\scripts\Test-Orchestration.ps1 -SkipNetwork
+```
+
+O validador cobre quests YAML; `doctor` cobre config, placeholders, lockfile e
+MCPs; o verificador PowerShell cobre a instalação completa e chama o validador
+compartilhado. Cada seção abaixo aponta o próximo diagnóstico.
 
 > **Idioma:** tambem disponivel em ingles ([`TROUBLESHOOTING.en.md`](TROUBLESHOOTING.en.md)).
 
@@ -65,19 +73,18 @@ Auto-recovery (watchdog). Desde 2026-08-19 o plugin detecta e recupera
 automaticamente. Em
 [`payload/plugins/opencode-quests.ts`](../../payload/plugins/opencode-quests.ts):
 
-- Quando `flushPendingDispatch` entrega um estágio com sucesso, ele arma um
-  flag (`dispatchedStageId`, `dispatchedStageMessage`). Linhas 587-591.
+- Quando `flushPendingDispatch` entrega um estágio com sucesso, arma um flag
+  (`dispatchedStageId`, `dispatchedStageMessage`).
 - Se `quest_advance` é chamado antes do próximo `session.idle`, o flag é
-  limpo — sinal positivo de que o modelo executou. Linhas 740-742.
-- Se o próximo `session.idle` chega com o flag ainda armado, o estágio
-  travou. O plugin mostra um toast de aviso e re-despacha usando o mesmo
-  `agent`/`model` declarado, nunca o modo atual do TUI.
-- Se os retries falharem, o plugin pausa a quest e reporta o bloqueio. Não há
-  fallback silencioso para Build nem injeção inline, porque isso poderia
-  executar preflight/plan no agente errado.
-- O watchdog é resetado em `clear()` (quest finalizada/parada) e em
-  `quest_advance` bem-sucedido, para não disparar falsos positivos em
-  quests futuras. Linhas 614-616, 740-742.
+  limpo — sinal positivo de que o modelo executou.
+- Se o próximo `session.idle` chega com o flag armado, o estágio travou. O
+  plugin mostra um toast de aviso e re-despacha usando o mesmo `agent`/`model`
+  declarado, nunca o modo atual do TUI.
+- Se retries falharem, pausa a quest como `blocked` e cancela timers ativos.
+  Não há fallback silencioso para Build, injeção inline ou execução no agente
+  errado.
+- O watchdog é resetado em `clear()` e em `quest_advance` bem-sucedido, para
+  não disparar falsos positivos em quests futuras.
 
 O que você vê durante a recuperação:
 
@@ -90,16 +97,21 @@ falharem, a mensagem informa que a quest foi pausada; corrija o despacho ou
 retome após verificar a sessão. O plugin não executa o estágio no modo atual
 do TUI.
 
-## Uma quest se dividiu em duas sessões
+## Uma sessão tentou assumir a quest ativa
 
-Sintoma: uma sessão tem só o primeiro estágio, outra só o segundo. A segunda
-tipicamente reporta não ver nada do estágio anterior — e está **correta**, ela
-nunca teve.
+Sintoma: uma sessão recebe uma mensagem de ownership, ou eventos de outra
+sessão parecem não fazer nada.
 
-Causa: o estado da quest é global ao processo, não por sessão. Duas quests
-concorrentes se atropelam.
+Causa: o plugin mantém uma quest por processo e registra o `sessionID`
+proprietário. Operações (`quest_advance`) e eventos de outra sessão são
+rejeitados ou ignorados em modo fail-closed. Isso evita que sessões concorrentes
+corrompam o runtime, mas não habilita quests paralelas no mesmo processo.
 
-Solução: uma quest por vez. Não há contorno melhor sem mudar o plugin.
+Solução: use a sessão proprietária para continuar a quest. Para iniciar uma
+quest diferente, use `/quest stop` na sessão atual ou abra um processo opencode
+separado. Quest `timed_out` não pode ser retomada; investigue, pare e inicie
+uma nova. Quest `blocked` pode ser retomada após corrigir o problema de
+roteamento.
 
 ## Um estágio relata não ver o estágio anterior
 
@@ -177,27 +189,42 @@ Use `-Check` antes de commitar. Para alterar quests ou plugins, edite o
 payload deste repositório e reinstale; o script de sync apenas compara e
 reporta drift, não sobrescreve a fonte.
 
+`npm install` e `npm install -g .` executam `postinstall` em modo seguro:
+instalam dependências, mas não chamam PowerShell nem alteram a configuração
+global. Para efetivar a instalação, use explicitamente:
+
+```powershell
+npm run install:force
+# ou
+opencode-orchestration --force
+```
+
+Não execute `Install-Orchestration.ps1 -Force` sem confirmar o `TargetRoot`:
+ele cria backup e modifica a configuração global indicada.
+
 ## Mudei o plugin e nada aconteceu
 
-Para quem edita o plugin de quests a partir do repositório de fonte (upstream +
-patches locais), três coisas, todas necessárias:
+O artefato carregado pelo opencode é `payload/plugins/opencode-quests.ts`.
+Para alterações neste repositório:
 
-1. Rebuild do artefato achatado no repo de fonte — gera o `.ts` que o opencode
-   carrega. Editar só a fonte não muda nada.
-2. Copie o `plugins/opencode-quests.ts` gerado para `payload/plugins/` deste
-   repo e commite.
-3. **Reinicie o opencode.** Sessões de TUI já abertas seguem com o plugin
-   antigo. E `Sync-Payload.ps1` para o achatado novo chegar ao destino
-   instalado.
+1. Edite o arquivo achatado no `payload/plugins/`.
+2. Rode o check TypeScript:
+   `npx --yes esbuild payload/plugins/opencode-quests.ts --loader:.ts=ts --format=esm --platform=node --outfile=NUL`.
+3. Rode `npm run validate:quests`, `npm run doctor -- --json --skip-opencode`
+   e `git diff --check`.
+4. Use `npm run sync:check` para conferir o destino instalado.
+5. Reinstale explicitamente com `Install-Orchestration.ps1 -Force` e reinicie o
+   opencode para sessões abertas carregarem o plugin novo.
 
-Atenção: o plugin tem dois repositórios (este de config + o de fonte). O
-`payload/plugins/opencode-quests.ts` pode estar com edição não commitada mesmo
-com o fonte atualizado — ou o contrário. `git status` em ambos mostra.
+Um repositório-fonte externo pode existir para desenvolvimento upstream, mas
+não é requisito de execução nem é sincronizado automaticamente por este repo.
+O payload versionado é a fonte de verdade do pacote.
 
 ## Uma skill não carrega
 
-Provavelmente é o symlink. `payload-symlinks.json` lista os que a config espera,
-e o instalador reporta se o alvo existe. Git guarda o link, não o conteúdo.
+Provavelmente é o symlink. `payload-symlinks.template.json` lista os links
+esperados, e o instalador reporta se o alvo existe. Git guarda o link, não o
+conteúdo.
 
 ```powershell
 Get-Item "$env:USERPROFILE\.config\opencode\skills\archify" -Force |
@@ -214,9 +241,17 @@ New-Item -ItemType SymbolicLink `
 
 ## Um MCP nao sobe
 
-Quatro motivos, em ordem de probabilidade.
+Principais motivos, em ordem de probabilidade.
 
-**1. Binario npm nao instalado.** O config global aponta `{{nodeModules}}/<pkg>`,
+Antes de investigar manualmente, rode:
+
+```powershell
+npm run doctor -- --json --skip-opencode
+npm run verify
+```
+
+O `doctor` verifica os binários locais declarados em `opencode.jsonc`; o
+verificador também confere dependências e config renderizada. O config global aponta `{{nodeModules}}/<pkg>`,
 que o instalador resolve para o `npm root -g` local. Se voce sobrescreveu o
 caminho com `ORCH_NPM_GLOBAL_NODE_MODULES` e ele nao bate onde o npm realmente
 instalou as deps, o comando `node <path>` do MCP falha com ENOENT. Use
@@ -251,16 +286,19 @@ $env:ORCH_NPM_GLOBAL_NODE_MODULES = (npm root -g)
 .\scripts\Install-Orchestration.ps1 -Force
 ```
 
-## O que o verificador não cobre
+## O que os checks não cobrem
 
-- **Quests de projeto.** Ele só valida as globais em
-  `~/.config/opencode/agents`. Quaisquer quests em `.agents/` de projeto
-  (locais ou externos) nao sao verificadas — o verificador so ve as globais.
+- **Quests de projeto por padrão.** `npm run validate:quests` valida
+  `payload/agents` por padrão, mas aceita `--dir=<path>`. O verificador
+  PowerShell valida o diretório global instalado e não descobre quests ocultas
+  em outros caminhos automaticamente.
 - **Alcançabilidade de MCP.** Presença de binário é checada; se o servidor sobe
   e responde, não.
-- **Roteamento de ponta a ponta.** Ele confere que as referências resolvem, não
-  que um estágio realmente foi atendido pelo modelo alvo. Para isso, rode o
+- **Roteamento ponta a ponta.** Os checks conferem referências e configuração,
+  não que um estágio foi realmente atendido pelo modelo alvo. Para isso, rode o
   `routing-probe` e leia o metadado — ver [`MEASUREMENTS.md`](MEASUREMENTS.md).
+- **Concorrência real.** Ownership impede corrupção entre sessões, mas não
+  fornece runtimes concorrentes independentes no mesmo processo.
 
 ## Quest iniciou mas o bloco Task está vazio
 
@@ -293,21 +331,21 @@ primeira mensagem da sessão. Use o parâmetro nomeado `input:`.
 
 ## Estágio expirou por timeout
 
-Sintoma: toast diz `Stage "X" timed out (300s without quest_advance) —
-forcing quest completion`.
+Sintoma: toast diz `Stage "X" timed out (300s without quest_advance) — quest
+remains timed_out for diagnosis`.
 
-Causa: o modelo produziu output mas nunca chamou `quest_advance` dentro do
-timeout configurado (default: 5 minutos). Isso pode acontecer quando:
+Causa: o modelo produziu output mas não chamou `quest_advance` dentro do
+(timeout padrão de 5 minutos ou valor configurado em `timeout:`). Isso pode
+acontecer quando:
 
 1. O modelo não entendeu a instrução e não chamou `quest_advance`.
-2. Um erro de API fez a resposta do modelo ser truncada antes da tool call.
-3. O TUI estava em Plan Mode e os retries do watchdog também se esgotaram
-   antes de o timeout disparar.
+2. Um erro de API fez a resposta ser truncada antes da tool call.
+3. O TUI estava em Plan Mode e os retries do watchdog também falharam.
 
-Resolução: re-dispare a quest. Se persistir, verifique se o modelo suporta
-tool calling de forma confiável (alguns modelos descartam tool calls sob
-volume alto de output). Considere trocar o estágio afetado para um modelo
-mais capaz via campo `model:` no YAML.
+A quest permanece `timed_out` para diagnóstico e **não é force-completada nem
+pode ser retomada**. Investigue o estágio, pare a quest e inicie uma nova
+execução. Para falha de despacho, o status é `blocked`; depois de corrigir o
+roteamento, use `/quest resume`.
 
 Para alterar o timeout por quest, adicione um campo top-level `timeout:`
 (segundos):

@@ -3,7 +3,7 @@
 Providers, agents, MCPs, plugins, skills and quests that opencode loads from
 `~/.config/opencode` — works in any project without needing a local config.
 
-Versioned 2026-08-18. Templates with `{{nodeModules}}`, `{{userHome}}` and
+Versioned 2026-08-21. Templates with `{{nodeModules}}`, `{{userHome}}`, and
 `{{userAgents}}` are resolved at install time in
 [`scripts/Install-Orchestration.ps1:Resolve-Template`](../../scripts/Install-Orchestration.ps1).
 
@@ -89,7 +89,44 @@ To add a new placeholder:
 2. Add the entry to `vars` before the "Payload" block.
 3. Use `{{name}}` in the template.
 
-## Measured state of the orchestration
+## Current orchestration state
+
+The quests plugin keeps one in-memory runtime per process, with explicit
+ownership by `sessionID`. Operations and events from other sessions are
+rejected or ignored fail-closed. This prevents cross-session corruption, but
+does not enable concurrent quests in one process; use separate opencode
+processes for parallelism.
+
+Possible states are `running`, `paused`, `blocked`, `timed_out`, and
+`completed`. Timeouts and routing failures remain visible for diagnosis instead
+of silently completing or clearing the quest. A routed stage never falls back
+to the current agent when dispatch fails.
+
+`plan`, `review`, and `explore` agents have read-only permissions in the
+template: `edit`, `bash`, and `task` are denied; read tools remain allowed.
+
+## Validation and installation
+
+The payload is the source of truth, but global installation requires an explicit
+action: `postinstall` installs dependencies without changing global
+configuration; use `npm run install:force` or
+`opencode-orchestration --force` to apply it.
+
+Available repository checks:
+
+```powershell
+npm run validate:quests
+npm run validate:quests -- --json
+npm run doctor -- --json --skip-opencode
+npm run sync:check
+```
+
+`validate:quests` validates quest YAML. `doctor` produces structured
+diagnostics for config, placeholders, quests, lockfile, and MCPs.
+`sync:check` only compares the payload with the installed destination and
+returns exit code `1` when drift exists.
+
+## Measured orchestration state
 
 Measured 2026-08-18 via the `routing-probe` and `override-probe` quests,
 with verification by API metadata (`providerID`/`modelID` per message), not
@@ -103,15 +140,18 @@ by model self-report:
   made it possible, in `finops-task`, to swap model while keeping
   `agent: build` and its write tools.
 
-Two known defects in the plugin, both measured and uncorrected:
+Current limitations and relevant history:
 
-- **Quest state is process-global, not per session.** Two concurrent quests
-  split between sessions — one gets the first stage, another the second. Run
-  one quest at a time.
-- **In headless execution the deferred stage sometimes gets lost** (~1 in 3
-  sessions), because dispatch happens on `session.idle` and the `opencode
-  run` client can exit before that. In a persistent TUI it does not appear.
+- **Headless execution.** The deferred stage can be lost (about 1 in 3 in
+  historical measurements) because dispatch happens on `session.idle` and the
+  `opencode run` client can exit first. Persistent TUI or `--attach` with
+  `opencode serve` is preferred.
+- **One active quest per process.** `sessionID` ownership prevents another
+  session from corrupting or taking over the quest, but it does not provide a
+  map of concurrent runtimes. Use separate processes for parallelism.
+- **Historical measurements.** Routing and context tests ran before session
+  hardening; see `docs/MEASUREMENTS.en.md` to distinguish measured history from
+  current behavior.
 
-The mitigation is written into the quests' context: each stage records in
-its own report what the next one needs, so a lost stage shows up as an
-explicit failure instead of the next model guessing.
+The quest context requires each stage to record what the next stage needs, so a
+lost stage becomes an explicit failure instead of the next model guessing.

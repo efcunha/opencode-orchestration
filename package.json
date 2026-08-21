@@ -25,16 +25,20 @@
     "verify:en": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/Test-Orchestration.ps1 -SkipNetwork -Language en",
     "verify:net": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/Test-Orchestration.ps1",
     "verify:net:en": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/Test-Orchestration.ps1 -Language en",
+    "doctor": "node scripts/doctor.js",
+    "doctor:json": "node scripts/doctor.js --json",
+    "validate:quests": "node scripts/validate-quests.js",
     "install:force": "node scripts/install.js --force",
     "sync": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/Sync-Payload.ps1",
     "sync:check": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/Sync-Payload.ps1 -Check"
   },
   "dependencies": {
-    "@modelcontextprotocol/server-memory": "^2025.8.4",
-    "@modelcontextprotocol/server-sequential-thinking": "^2025.7.1"
+    "@modelcontextprotocol/server-memory": "2025.8.4",
+    "@modelcontextprotocol/server-sequential-thinking": "2025.7.1",
+    "yaml": "2.9.0"
   },
   "optionalDependencies": {
-    "opencode-rag-plugin": "*"
+    "opencode-rag-plugin": "1.22.0"
   },
   "keywords": [
     "opencode",

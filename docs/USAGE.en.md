@@ -112,8 +112,10 @@ The quest is NOT a synchronous call. The flow is:
 | Start | `Quest started: "Name"` |
 | Every ~10s (heartbeat) | `Quest: Name \| Stage: id (i/n) \| elapsed \| status` |
 | Dwell reminder (no output for ~10s) | Re-delivers the current stage |
-| Plan stall | `Stage "X" stalled (Plan Mode?) — retry 1/2 on current agent` |
-| Stall after 2 retries | `Stage "X" stalled 2x — forcing TUI delivery` |
+| Plan stall | `Stage "X" stalled (Plan Mode?) — retry 1/2 on routed agent` |
+| Stall after 2 retries | `Stage "X" stalled 2x — quest paused; no TUI fallback` |
+| Routing blocked | `Quest routing blocked ... Quest paused` |
+| Timeout | `Stage "X" timed out (300s without quest_advance) — quest remains timed_out for diagnosis` |
 | End | `Quest complete: "Name"` |
 | `/quest pause` | `Quest paused — "Name" at stage X` |
 | `/quest resume` | `Quest resumed — "Name" at stage X` |
@@ -351,15 +353,21 @@ reproduce routing results.
 
 ## 6. Operational rules
 
-### One quest at a time
+### One active quest per process
 
-Quest state lives in the opencode **process memory**, not per session.
-Two concurrent quests split between sessions — one gets the first stage,
-another the second. The orphan session reports `NO_CONTEXT`
-**correctly** — it never had the previous stage.
+The plugin keeps one quest runtime per process and records its owning
+`sessionID`. Operations and events from another session are rejected or
+ignored fail-closed; they cannot take over or corrupt the active quest.
 
-Rule: **one quest at a time**. If you need to parallelize, run two
-separate opencode processes.
+This is still not a concurrent quest scheduler: one process supports one active
+quest at a time. To parallelize, use separate opencode processes. A new quest
+in the same session replaces the previous one; a different session receives an
+ownership error.
+
+States are `running`, `paused`, `blocked`, `timed_out`, and `completed`. A
+`timed_out` quest remains available for diagnosis and cannot be resumed; stop it
+and start a new run after investigation. A `blocked` quest can be resumed after
+fixing the routing problem.
 
 ### TUI in Build before firing
 
@@ -371,9 +379,10 @@ If you fire a quest with the TUI in **Plan**, the routed stage receives
 the instruction but cannot call tools — in particular, `quest_advance`.
 The quest stops silently.
 
-**Auto-recovery exists** since 2026-08-19: the plugin detects the stall
-and re-dispatches up to 2 times, falling back to TUI injection in the
-end. But that introduces delay and a warning toast. To avoid it: switch
+**Auto-recovery is enabled**: the plugin detects the stall and redispatches up
+to 2 times using the same declared `agent`/`model`. If the problem persists,
+the quest becomes `blocked` and reports the blocker; there is no silent fallback
+to TUI injection or execution on the current agent. To avoid the delay, switch
 to Build (Tab) before typing `quest(...)`. Technical detail in
 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) "The TUI stalled in Plan
 Mode".
@@ -383,25 +392,52 @@ Mode".
 - `quest(...)` in the chat = **start** a quest. Tool.
 - `/quest ...` in the chat = **manage** the active quest. Slash command.
 
-Do not confuse: `/quest status` does not start anything, it only shows
-status. And `quest(file: "...")` does not pause or stop anything — if
-there is already an active quest, it replaces it.
+Do not confuse them: `/quest status` does not start anything; it only shows
+status. `quest(file: "...")` starts or replaces the active quest **in the same
+session**; if another session tries to operate the current quest, the plugin
+rejects the operation because of ownership.
 
 ### When to be suspicious
 
-- **"stalled" warning toast**: the plugin is trying to recover. Wait
-  ~10s. If it falls back to TUI injection, the quest continues with the
-  caveat that the stage ran without tools.
+- **"stalled" warning toast**: the plugin is recovering on the same declared
+  agent/model. Wait for the retries. If they fail, the quest becomes
+  `blocked`; fix routing before `/quest resume`.
+- **Timeout toast**: the quest remains `timed_out` for diagnosis. Stop it and
+  start a new run after investigation; it is not force-completed.
 - **Session stops after a stage with "queued" in the output**: probable
-  headless dispatch loss. See
-  [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md).
-- **Two stages across different sessions**: global state clobbered.
-  Stop the second one, let the first finish.
+  headless dispatch loss. See [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md).
+- **Ownership error**: another session tried to modify the active quest. Use
+  the owning session or stop the quest before starting another.
 - **Heartbeat stops showing for >2 minutes**: probably frozen. Try
-  `/quest status` to see where it is; `/quest stop` + redispatch is the
-  pragmatic way out.
+  `/quest status`, then use `/quest stop` and redispatch in a controlled way.
 
-## 7. Typical workflow
+## 7. Validation and diagnostics
+
+Before installing or publishing payload changes:
+
+```powershell
+npm run validate:quests
+npm run validate:quests -- --json
+npm run doctor -- --json --skip-opencode
+npm run verify
+```
+
+`validate:quests` validates quests in `payload/agents` by default. To validate
+another directory, use `node scripts/validate-quests.js --dir=<path>`. `doctor`
+checks the global installation without modifying files. `verify` runs the full
+PowerShell verification, including the shared validator.
+
+To check whether the global destination is up to date:
+
+```powershell
+npm run sync:check
+```
+
+Exit code `1` means expected drift when the local payload has not been installed
+with `Install-Orchestration.ps1 -Force`. Sync only compares; it does not
+overwrite global configuration.
+
+## 8. Typical workflow
 
 1. Open the TUI: `opencode`.
 2. Confirm you are in Build (footer).
