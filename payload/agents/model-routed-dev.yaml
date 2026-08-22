@@ -1,6 +1,7 @@
 kind: quest
 name: Model Routed Dev
 description: "preflight -> plan -> build -> evidence -> review -> handoff, with routed models and bugfix recovery"
+timeout: 1200
 context: >
   Universal development workflow for any repository and task source.
   The user's request is delivered in the Task block above.
